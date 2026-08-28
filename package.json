@@ -1,13 +1,15 @@
 {
   "name": "terrible-mouse-recovery-target",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Manual-navigation capture harness for XHTML fragments already rendered by the McGraw Hill reader.",
+  "description": "Manual-navigation capture and structure-discovery harness for XHTML fragments already rendered by the McGraw Hill reader.",
   "scripts": {
     "inspect": "node src/inspect.mjs",
     "capture": "node src/capture.mjs",
-    "validate": "node src/validate.mjs"
+    "validate": "node src/validate.mjs",
+    "toc": "node src/toc.mjs",
+    "structure": "node src/structure.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.55.0"
