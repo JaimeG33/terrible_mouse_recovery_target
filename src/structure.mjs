@@ -24,8 +24,11 @@ function sortedNumbers(values) {
 }
 
 function rangesFromToc(toc) {
-  const chapters = toc.nodes
-    .filter((node) => node.level === 0)
+  const topLevel = toc.nodes
+    .filter((node) => node.level === 0 && Number.isInteger(node.spinePosition))
+    .sort((a, b) => a.spinePosition - b.spinePosition);
+
+  const chapters = topLevel
     .map((node) => {
       const match = node.label.match(/\bChapter\s+(\d+)\b/i);
       if (!match) return null;
@@ -41,15 +44,18 @@ function rangesFromToc(toc) {
     .filter(Boolean)
     .sort((a, b) => a.chapterNumber - b.chapterNumber);
 
-  return chapters.map((chapter, index) => {
-    const next = chapters[index + 1];
+  return chapters.map((chapter) => {
+    const nextTopLevel = topLevel.find(
+      (node) => node.spinePosition > chapter.startSpinePosition
+    );
 
     return {
       ...chapter,
-      nextChapterStartSpinePosition: next?.startSpinePosition ?? null,
+      nextTopLevelLabel: nextTopLevel?.label ?? null,
+      nextTopLevelStartSpinePosition: nextTopLevel?.spinePosition ?? null,
       inferredSpineEnd:
-        next && Number.isInteger(next.startSpinePosition)
-          ? next.startSpinePosition - 1
+        nextTopLevel && Number.isInteger(nextTopLevel.spinePosition)
+          ? nextTopLevel.spinePosition - 1
           : null
     };
   });
@@ -144,6 +150,7 @@ try {
       title: tocInfo?.label ?? null,
       tocStartSpinePosition: tocInfo?.startSpinePosition ?? null,
       tocInferredSpineEnd: tocInfo?.inferredSpineEnd ?? null,
+      nextTopLevelLabel: tocInfo?.nextTopLevelLabel ?? null,
       capturedReaders: captured,
       discoveredReaders: discovered,
       missingReadersAlreadyReferencedByCapturedXhtml: missingKnown,
@@ -153,7 +160,7 @@ try {
   });
 
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     tocNodeCount: toc.nodeCount,
     tocTopLevelCount: toc.topLevelCount,
@@ -165,7 +172,8 @@ try {
       "discoveredReaders are reader_N.xhtml numbers referenced by XHTML that was already rendered and captured.",
       "missingReadersAlreadyReferencedByCapturedXhtml are known links that have not yet been captured.",
       "The absence of missing known readers does not prove a chapter is complete.",
-      "TOC spine positions describe reader navigation structure and are kept separate from reader_N.xhtml numbering."
+      "TOC spine positions describe reader navigation structure and are kept separate from reader_N.xhtml numbering.",
+      "Chapter spine ends are inferred from the next top-level TOC node, so Chapter 13 ends before Index rather than remaining open-ended."
     ]
   };
 
@@ -180,6 +188,7 @@ try {
     chapterDiscovery.map((chapter) => ({
       chapter: chapter.chapterNumber,
       tocStart: chapter.tocStartSpinePosition,
+      tocEnd: chapter.tocInferredSpineEnd,
       captured: chapter.capturedReaders.join(", ") || "(none)",
       discovered: chapter.discoveredReaders.join(", ") || "(none)",
       missingKnown:

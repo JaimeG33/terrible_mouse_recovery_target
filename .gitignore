@@ -2,6 +2,7 @@ node_modules/
 .chrome-profile/
 captures/
 structure/
+assets/
 output/
 *.log
 .DS_Store
