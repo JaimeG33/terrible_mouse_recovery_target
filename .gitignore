@@ -1,0 +1,7 @@
+node_modules/
+.chrome-profile/
+captures/
+output/
+*.log
+.DS_Store
+Thumbs.db
