@@ -27,6 +27,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $previousChapter = $env:MHE_CHAPTER
+$script:LastNpmExitCode = 0
 
 function Invoke-NpmCmd {
     param(
@@ -34,8 +35,10 @@ function Invoke-NpmCmd {
         [string[]]$Arguments
     )
 
+    # Run as a statement, not as a function whose combined stdout/return value
+    # is assigned by the caller. See STEP5_2_4_BUILD_PIPELINE_FIX.md.
     & npm.cmd @Arguments
-    return $LASTEXITCODE
+    $script:LastNpmExitCode = [int]$LASTEXITCODE
 }
 
 Push-Location $ProjectRoot
@@ -51,12 +54,6 @@ try {
         "record" {
             Write-Host "Selecting the McGraw Hill book currently open in the dedicated Chrome window..."
 
-            # IMPORTANT:
-            # Invoke Node directly here rather than chaining two `npm run` calls.
-            # On Windows PowerShell, `npm` may resolve to npm.ps1. The npm PowerShell
-            # shim ends with `exit $LASTEXITCODE`; depending on the calling scope,
-            # that can terminate this wrapper after book selection before the
-            # second command (`record`) ever starts.
             & node "src/book-manager.mjs" "use-current"
             if ($LASTEXITCODE -ne 0) {
                 throw "Could not select the current book."
@@ -67,8 +64,6 @@ try {
             Write-Host "Do not navigate until the terminal prints ONE-PASS CHAPTER RECORDING READY."
             Write-Host ""
 
-            # Separate Node process is deliberate: config.mjs must load AFTER
-            # book-manager writes books/active.json so ACTIVE_BOOK_ID is current.
             & node "src/record.mjs"
 
             if ($LASTEXITCODE -ne 0) {
@@ -89,46 +84,55 @@ try {
 
         "capture" {
             Write-Host "Low-level XHTML-only capture. Prefer Action record for normal use."
-            $code = Invoke-NpmCmd -Arguments @("run", "capture")
+            Invoke-NpmCmd -Arguments @("run", "capture")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "inventory" {
-            $code = Invoke-NpmCmd -Arguments @("run", "assets:inventory")
+            Invoke-NpmCmd -Arguments @("run", "assets:inventory")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "assets" {
             Write-Host "Low-level asset-only watcher. Prefer Action record for normal use."
-            $code = Invoke-NpmCmd -Arguments @("run", "assets:capture")
+            Invoke-NpmCmd -Arguments @("run", "assets:capture")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "validate" {
-            $code = Invoke-NpmCmd -Arguments @("run", "chapter:validate")
+            Invoke-NpmCmd -Arguments @("run", "chapter:validate")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
 
-            $code = Invoke-NpmCmd -Arguments @("run", "assets:validate")
+            Invoke-NpmCmd -Arguments @("run", "assets:validate")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "assemble" {
-            $code = Invoke-NpmCmd -Arguments @("run", "assemble")
+            Invoke-NpmCmd -Arguments @("run", "assemble")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "pdf" {
-            $code = Invoke-NpmCmd -Arguments @("run", "pdf")
+            Invoke-NpmCmd -Arguments @("run", "pdf")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "proof" {
-            $code = Invoke-NpmCmd -Arguments @("run", "proof")
+            Invoke-NpmCmd -Arguments @("run", "proof")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
 
         "status" {
-            $code = Invoke-NpmCmd -Arguments @("run", "status")
+            Invoke-NpmCmd -Arguments @("run", "status")
+            $code = [int]$script:LastNpmExitCode
             if ($code -ne 0) { exit $code }
         }
     }

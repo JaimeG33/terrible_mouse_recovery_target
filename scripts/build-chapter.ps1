@@ -13,6 +13,8 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $previousChapter = $env:MHE_CHAPTER
 $previousMode = $env:MHE_RENDER_MODE
 
+$script:LastStageExitCode = 0
+
 function Invoke-NpmStage {
     param(
         [Parameter(Mandatory=$true)]
@@ -28,10 +30,37 @@ function Invoke-NpmStage {
     Write-Host "============================================================"
     Write-Host ""
 
-    # Use npm.cmd explicitly. This avoids PowerShell resolving `npm` to
-    # npm.ps1, whose exit behavior can interrupt a larger orchestration script.
+    # IMPORTANT:
+    # Do not RETURN the exit code from this function while the caller assigns
+    # the function result to a variable. External-command stdout is also
+    # PowerShell pipeline output, so a call such as:
+    #
+    #   $exitCode = Invoke-NpmStage ...
+    #
+    # captures both npm's console text and the integer exit code. The resulting
+    # array compares as nonzero even when npm actually exited 0, which made
+    # successful validation look like a failure and also hid the stage output.
+    #
+    # Instead, let npm stream normally to the terminal and store the actual
+    # process exit code in script scope.
     & npm.cmd run $ScriptName
-    return $LASTEXITCODE
+    $script:LastStageExitCode = [int]$LASTEXITCODE
+}
+
+function Run-NpmStage {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Name,
+
+        [Parameter(Mandatory=$true)]
+        [string]$ScriptName
+    )
+
+    Invoke-NpmStage `
+        -Name $Name `
+        -ScriptName $ScriptName
+
+    return [int]$script:LastStageExitCode
 }
 
 function Ask-Fallback {
@@ -68,9 +97,12 @@ try {
     Write-Host "Requested mode: $Mode"
     Write-Host ""
 
-    $exitCode = Invoke-NpmStage `
+    # Call the stage as a standalone statement so its npm stdout remains
+    # visible. Read the exit code afterward from script scope.
+    Invoke-NpmStage `
         -Name "1/6 - Chapter content validation" `
         -ScriptName "chapter:validate"
+    $exitCode = [int]$script:LastStageExitCode
 
     if ($exitCode -ne 0) {
         Write-Host ""
@@ -84,9 +116,10 @@ try {
         exit $exitCode
     }
 
-    $exitCode = Invoke-NpmStage `
+    Invoke-NpmStage `
         -Name "2/6 - Build asset inventory" `
         -ScriptName "assets:inventory"
+    $exitCode = [int]$script:LastStageExitCode
 
     if ($exitCode -ne 0) {
         Write-Host ""
@@ -95,9 +128,10 @@ try {
         exit $exitCode
     }
 
-    $exitCode = Invoke-NpmStage `
+    Invoke-NpmStage `
         -Name "3/6 - Match one-pass staged assets" `
         -ScriptName "assets:promote"
+    $exitCode = [int]$script:LastStageExitCode
 
     if ($exitCode -ne 0) {
         Write-Host ""
@@ -106,9 +140,10 @@ try {
         exit $exitCode
     }
 
-    $assetExit = Invoke-NpmStage `
+    Invoke-NpmStage `
         -Name "4/6 - Asset validation" `
         -ScriptName "assets:validate"
+    $assetExit = [int]$script:LastStageExitCode
 
     if ($assetExit -ne 0 -and $selectedMode -eq "normal") {
         if ($Mode -eq "auto") {
@@ -135,9 +170,10 @@ try {
 
     $env:MHE_RENDER_MODE = $selectedMode
 
-    $assembleExit = Invoke-NpmStage `
+    Invoke-NpmStage `
         -Name "5/6 - Assemble continuous chapter ($selectedMode mode)" `
         -ScriptName "assemble"
+    $assembleExit = [int]$script:LastStageExitCode
 
     if (
         $assembleExit -ne 0 -and
@@ -157,9 +193,10 @@ try {
         $selectedMode = $fallback
         $env:MHE_RENDER_MODE = $selectedMode
 
-        $assembleExit = Invoke-NpmStage `
+        Invoke-NpmStage `
             -Name "5/6 - Retry assembly ($selectedMode mode)" `
             -ScriptName "assemble"
+        $assembleExit = [int]$script:LastStageExitCode
     }
 
     if ($assembleExit -ne 0) {
@@ -170,9 +207,10 @@ try {
         exit $assembleExit
     }
 
-    $pdfExit = Invoke-NpmStage `
+    Invoke-NpmStage `
         -Name "6/6 - Render PDF" `
         -ScriptName "pdf"
+    $pdfExit = [int]$script:LastStageExitCode
 
     if ($pdfExit -ne 0) {
         Write-Host ""
