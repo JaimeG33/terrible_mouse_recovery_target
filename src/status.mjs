@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { CAPTURE_ROOT, MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
+import { CAPTURE_ROOT, MANIFEST_PATH, STRUCTURE_ROOT } from "./config.mjs";
 import { readBookScope } from "./book-scope.mjs";
 import { analyzeChapterCaptures } from "./capture-order.mjs";
 
-const TOC_PATH = path.join(PROJECT_ROOT, "structure", "toc.json");
+const TOC_PATH = path.join(STRUCTURE_ROOT, "toc.json");
 
 async function readJsonIfPresent(filePath) {
   try {

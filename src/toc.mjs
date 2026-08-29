@@ -1,9 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { PROJECT_ROOT } from "./config.mjs";
+import { STRUCTURE_ROOT } from "./config.mjs";
 import { connectToChrome, findReaderPage } from "./reader.mjs";
-
-const STRUCTURE_ROOT = path.join(PROJECT_ROOT, "structure");
 const TOC_PATH = path.join(STRUCTURE_ROOT, "toc.json");
 
 async function ensureTocVisible(page) {

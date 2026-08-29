@@ -4,8 +4,23 @@ param(
     [int]$Chapter,
 
     [Parameter(Mandatory=$true)]
-    [ValidateSet("capture", "inventory", "assets", "validate", "assemble", "pdf", "proof", "status")]
-    [string]$Action
+    [ValidateSet(
+        "record",
+        "build",
+        "reset",
+        "capture",
+        "inventory",
+        "assets",
+        "validate",
+        "assemble",
+        "pdf",
+        "proof",
+        "status"
+    )]
+    [string]$Action,
+
+    [ValidateSet("auto", "normal", "safe", "plain")]
+    [string]$Mode = "auto"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,29 +38,62 @@ try {
     Write-Host ""
 
     switch ($Action) {
+        "record" {
+            Write-Host "Selecting the McGraw Hill book currently open in the dedicated Chrome window..."
+            npm run book:use-current
+            if ($LASTEXITCODE -ne 0) {
+                throw "Could not select the current book."
+            }
+
+            Write-Host ""
+            npm run record
+        }
+
+        "build" {
+            & (Join-Path $PSScriptRoot "build-chapter.ps1") `
+                -Chapter $Chapter `
+                -Mode $Mode
+        }
+
+        "reset" {
+            & (Join-Path $PSScriptRoot "reset-chapter.ps1") `
+                -Chapter $Chapter
+        }
+
         "capture" {
-            Write-Host "Only Chapter $Chapter will be saved. Other chapters are ignored by the content watcher."
+            Write-Host "Low-level XHTML-only capture. Prefer Action record for normal use."
             npm run capture
         }
+
         "inventory" {
             npm run assets:inventory
         }
+
         "assets" {
-            Write-Host "Manually navigate/scroll Chapter $Chapter while this watcher is running."
+            Write-Host "Low-level asset-only watcher. Prefer Action record for normal use."
             npm run assets:capture
         }
+
         "validate" {
+            npm run chapter:validate
+            if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+            }
             npm run assets:validate
         }
+
         "assemble" {
             npm run assemble
         }
+
         "pdf" {
             npm run pdf
         }
+
         "proof" {
             npm run proof
         }
+
         "status" {
             npm run status
         }

@@ -4,9 +4,12 @@ import { PROJECT_ROOT } from "./config.mjs";
 
 const riskyPathPatterns = [
   /(^|\/)\.chrome-profile(\/|$)/i,
+  /^books\//i,
+  /^backups\//i,
   /^captures\//i,
   /^structure\//i,
   /^assets\//i,
+  /^staging\//i,
   /^output\//i,
   /(^|\/)\.env(?:\.|$)/i,
   /\.har$/i,
@@ -18,10 +21,8 @@ const riskyPathPatterns = [
 
 const requiredIgnoreEntries = [
   ".chrome-profile/",
-  "captures/",
-  "structure/",
-  "assets/",
-  "output/",
+  "books/",
+  "backups/",
   ".env",
   ".env.*",
   "*.har",
@@ -30,34 +31,54 @@ const requiredIgnoreEntries = [
 ];
 
 try {
-  const tracked = execFileSync("git", ["ls-files"], {
-    cwd: PROJECT_ROOT,
-    encoding: "utf8"
-  })
+  const tracked = execFileSync(
+    "git",
+    ["ls-files"],
+    {
+      cwd: PROJECT_ROOT,
+      encoding: "utf8"
+    }
+  )
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean);
 
   const riskyTracked = tracked.filter((file) =>
-    riskyPathPatterns.some((pattern) => pattern.test(file))
+    riskyPathPatterns.some((pattern) =>
+      pattern.test(file)
+    )
   );
 
-  const gitignore = await fs.readFile(`${PROJECT_ROOT}/.gitignore`, "utf8");
+  const gitignore = await fs.readFile(
+    `${PROJECT_ROOT}/.gitignore`,
+    "utf8"
+  );
+
+  const ignoreLines = gitignore.split(/\r?\n/);
+
   const missingIgnores = requiredIgnoreEntries.filter(
-    (entry) => !gitignore.split(/\r?\n/).includes(entry)
+    (entry) => !ignoreLines.includes(entry)
   );
 
   console.log("\nRepository security preflight\n");
   console.log(`Tracked files checked: ${tracked.length}`);
 
   if (riskyTracked.length) {
-    console.log("\nFAIL: sensitive/runtime-looking paths are tracked:");
-    for (const file of riskyTracked) console.log(`  - ${file}`);
+    console.log(
+      "\nFAIL: sensitive/runtime-looking paths are tracked:"
+    );
+    for (const file of riskyTracked) {
+      console.log(`  - ${file}`);
+    }
   }
 
   if (missingIgnores.length) {
-    console.log("\nWARNING: recommended .gitignore entries are missing:");
-    for (const entry of missingIgnores) console.log(`  - ${entry}`);
+    console.log(
+      "\nWARNING: recommended .gitignore entries are missing:"
+    );
+    for (const entry of missingIgnores) {
+      console.log(`  - ${entry}`);
+    }
   }
 
   if (!riskyTracked.length && !missingIgnores.length) {
@@ -74,6 +95,8 @@ try {
     process.exitCode = 2;
   }
 } catch (error) {
-  console.error(`\nSECURITY CHECK FAILED\n${error.message}\n`);
+  console.error(
+    `\nSECURITY CHECK FAILED\n${error.message}\n`
+  );
   process.exitCode = 1;
 }

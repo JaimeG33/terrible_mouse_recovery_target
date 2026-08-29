@@ -3,10 +3,15 @@ node_modules/
 # Dedicated Chrome profile. This can contain login/session data.
 .chrome-profile/
 
-# Runtime captures and generated book material.
+# Per-book runtime data and recovery backups.
+books/
+backups/
+
+# Legacy runtime locations (kept ignored for migration/backward safety).
 captures/
 structure/
 assets/
+staging/
 output/
 
 # Local configuration / authentication artifacts.

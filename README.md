@@ -1,120 +1,98 @@
-# terrible_mouse_recovery_target
+# to_spite_ghislaine_maxwell
 
-A local accessibility/recovery helper for supported McGraw Hill eBook reader pages.
+A local accessibility/recovery helper for supported McGraw Hill eBook reader books.
 
-The tool connects to a **dedicated Chrome profile**, watches the McGraw Hill EPUB content that you manually navigate to, saves the already-rendered XHTML and required assets locally, and can reconstruct those captures into continuous HTML and chapter PDFs.
+The tool uses a dedicated Chrome profile and records **only the textbook content you manually navigate to**. It saves rendered XHTML and matching browser-loaded assets locally, then reconstructs the chapter into continuous HTML and PDF.
 
-It is intentionally a manual-navigation workflow. It does not guess hidden `reader_*.xhtml` URLs, copy authentication tokens/cookies into scripts, or automatically crawl a textbook.
+It does not automatically crawl hidden textbook URLs or export account cookies/tokens into scripts.
 
-## What you need
+## Normal workflow
 
-- Windows
-- Google Chrome
-- VS Code
-- Node.js 20+ with npm
-- access to the McGraw Hill book through your own account
-
-Install the project dependencies once:
+Install once:
 
 ```powershell
 npm install
 ```
 
-## Typical chapter workflow
-
-Start the dedicated browser:
+Start the dedicated Chrome window:
 
 ```powershell
 npm run chrome:start
 ```
 
-Sign in to McGraw Hill in that Chrome window and open the book.
+Sign into McGraw Hill and open the book.
 
-Verify the reader:
-
-```powershell
-npm run inspect
-```
-
-For a chapter, the easiest scoped commands are:
+Record a chapter **once**:
 
 ```powershell
-.\scripts\chapter.ps1 -Chapter 2 -Action capture
+.\scripts\chapter.ps1 -Chapter 3 -Action record
 ```
 
-Manually move through Chapter 2, then stop with `Ctrl+C`.
+After the terminal says `ONE-PASS CHAPTER RECORDING READY`, manually move through the chapter. Press `Ctrl+C` when you reach the next chapter.
 
-Prepare and capture its assets:
+Build the chapter:
 
 ```powershell
-.\scripts\chapter.ps1 -Chapter 2 -Action inventory
-.\scripts\chapter.ps1 -Chapter 2 -Action assets
+.\scripts\chapter.ps1 -Chapter 3 -Action build
 ```
 
-Manually move through the same chapter again while the asset watcher runs, then stop with `Ctrl+C`.
+The build command runs capture validation, asset inventory, staged-asset matching, asset validation, HTML assembly, and PDF rendering in order.
 
-Validate and build:
+If normal publisher formatting fails but text is intact, the build can offer:
+
+- **Safe** formatting: semantic content + simple built-in CSS.
+- **Plain** formatting: text-first fallback with minimal styling.
+
+Known missing XHTML/text remains a hard stop.
+
+## Multiple books
+
+The tool keeps a local book registry:
 
 ```powershell
-.\scripts\chapter.ps1 -Chapter 2 -Action validate
-.\scripts\chapter.ps1 -Chapter 2 -Action assemble
-.\scripts\chapter.ps1 -Chapter 2 -Action pdf
+npm run books
 ```
 
-The chapter output is placed under:
+Runtime data is isolated under:
 
 ```text
-output/chapter02/
+books/<bookId>/
 ```
 
-Check overall capture progress at any time with:
+so Chapter 1 of Book A cannot collide with Chapter 1 of Book B.
+
+When `Action record` starts, the book currently open in the dedicated Chrome reader is selected/registered automatically.
+
+## Reset / retry
+
+For a chapter that needs to be redone:
+
+```powershell
+.\scripts\chapter.ps1 -Chapter 3 -Action reset
+```
+
+The menu can rebuild output only, reset assets, reset an entire chapter recording, or remove one `reader_N` fragment. Data is backed up before destructive reset operations.
+
+## Useful diagnostics
 
 ```powershell
 npm run status
 npm run structure
-```
-
-When finished, close the dedicated Chrome window normally or use:
-
-```powershell
-npm run chrome:stop
-```
-
-## Important scoping note
-
-Use **one project workspace per book**. Step 5 adds a local book-scope guard so a capture session will refuse to mix a different McGraw Hill book into an existing workspace.
-
-The tool detects chapter numbers from the current McGraw Hill reader and TOC when the book uses the expected `Chapter N` / `chapterNN/reader_N.xhtml` conventions. It is designed to work with more than one title, but it is not guaranteed to support every McGraw Hill product or legacy reader without adaptation.
-
-## Documentation
-
-Start here:
-
-- [`docs/usage-guide/STARTUP.md`](docs/usage-guide/STARTUP.md) - first-time setup
-- [`docs/usage-guide/TYPICAL_USAGE.md`](docs/usage-guide/TYPICAL_USAGE.md) - normal end-to-end workflow
-- [`docs/usage-guide/COMMAND_REFERENCE.md`](docs/usage-guide/COMMAND_REFERENCE.md) - what each command does
-- [`docs/usage-guide/SCOPING_AND_TROUBLESHOOTING.md`](docs/usage-guide/SCOPING_AND_TROUBLESHOOTING.md) - chapter/book scope and common fixes
-- [`docs/development/TECHNICAL_OVERVIEW.md`](docs/development/TECHNICAL_OVERVIEW.md) - architecture and development environment
-- [`docs/development/ROADMAP.md`](docs/development/ROADMAP.md) - remaining development steps
-
-## Privacy / repository safety
-
-The dedicated Chrome profile can contain login/session information. Captured textbook material and generated PDFs also remain local.
-
-The following are intentionally Git-ignored:
-
-```text
-.chrome-profile/
-captures/
-structure/
-assets/
-output/
-```
-
-Run this before publishing changes:
-
-```powershell
+npm run books
 npm run security:check
 ```
 
-Do not force-add ignored runtime folders to Git.
+## Documentation
+
+See:
+
+```text
+docs/usage-guide/
+docs/development/
+```
+
+Start with:
+
+- `docs/usage-guide/TYPICAL_USAGE.md`
+- `docs/usage-guide/RECOVERY_AND_FALLBACKS.md`
+- `docs/usage-guide/MULTI_BOOK.md`

@@ -1,27 +1,71 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { CAPTURE_ROOT, MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
+import {
+  ASSET_ROOT,
+  CAPTURE_ROOT,
+  MANIFEST_PATH,
+  OUTPUT_ROOT
+} from "./config.mjs";
 import {
   analyzeChapterCaptures,
   sortChapterCaptures
 } from "./capture-order.mjs";
 
-const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "1", 10);
+const chapterNumber = Number.parseInt(
+  process.env.MHE_CHAPTER || "1",
+  10
+);
 
 if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
   throw new Error("MHE_CHAPTER must be a positive integer.");
 }
 
+const renderMode = (
+  process.env.MHE_RENDER_MODE || "normal"
+).toLowerCase();
+
+if (!["normal", "safe", "plain"].includes(renderMode)) {
+  throw new Error(
+    "MHE_RENDER_MODE must be normal, safe, or plain."
+  );
+}
+
 const strictReaderSequence =
-  /^(?:1|true|yes)$/i.test(process.env.MHE_STRICT_READER_SEQUENCE || "");
+  /^(?:1|true|yes)$/i.test(
+    process.env.MHE_STRICT_READER_SEQUENCE || ""
+  );
 
 const pad2 = (value) => String(value).padStart(2, "0");
 const chapterLabel = `chapter${pad2(chapterNumber)}`;
-const assetRoot = path.join(PROJECT_ROOT, "assets", chapterLabel);
+const assetRoot = path.join(ASSET_ROOT, chapterLabel);
 const inventoryPath = path.join(assetRoot, "inventory.json");
-const outputRoot = path.join(PROJECT_ROOT, "output", chapterLabel);
+const outputRoot = path.join(OUTPUT_ROOT, chapterLabel);
 const htmlPath = path.join(outputRoot, `${chapterLabel}.html`);
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || "")
+    .replace(/&#(\d+);/g, (_, n) =>
+      String.fromCodePoint(Number.parseInt(n, 10))
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) =>
+      String.fromCodePoint(Number.parseInt(n, 16))
+    )
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'");
+}
 
 function normalizeUrl(value) {
   try {
@@ -35,6 +79,7 @@ function normalizeUrl(value) {
 
 function resolveUrl(raw, baseHref) {
   const value = String(raw || "").trim();
+
   if (!value || value.startsWith("#")) return null;
   if (/^(?:data|blob|javascript|mailto|tel):/i.test(value)) return null;
 
@@ -49,17 +94,28 @@ function resolveUrl(raw, baseHref) {
 }
 
 function extractBody(html) {
-  const match = html.match(/<body\b([^>]*)>([\s\S]*?)<\/body>/i);
+  const match = html.match(
+    /<body\b([^>]*)>([\s\S]*?)<\/body>/i
+  );
+
   if (!match) {
-    throw new Error("Captured XHTML did not contain a <body> element.");
+    throw new Error(
+      "Captured XHTML did not contain a <body> element."
+    );
   }
 
   const attrs = match[1] || "";
   const inner = match[2] || "";
-  const classMatch = attrs.match(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+  const classMatch = attrs.match(
+    /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i
+  );
 
   return {
-    classes: (classMatch?.[1] || classMatch?.[2] || "")
+    classes: (
+      classMatch?.[1] ||
+      classMatch?.[2] ||
+      ""
+    )
       .split(/\s+/)
       .filter(Boolean),
     inner
@@ -67,15 +123,25 @@ function extractBody(html) {
 }
 
 function extractInlineStyles(html) {
-  return [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+  return [
+    ...html.matchAll(
+      /<style\b[^>]*>([\s\S]*?)<\/style>/gi
+    )
+  ]
     .map((match) => match[1] || "")
     .filter(Boolean);
 }
 
-function removeScripts(html) {
+function removeActiveContent(html) {
   return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, "");
+    .replace(
+      /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+      ""
+    )
+    .replace(
+      /<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi,
+      ""
+    );
 }
 
 function rewriteCssUrls(css, baseHref, localUrlFor) {
@@ -83,15 +149,22 @@ function rewriteCssUrls(css, baseHref, localUrlFor) {
     /url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)/gi,
     (whole, a, b, c) => {
       const raw = a ?? b ?? c ?? "";
-      if (!raw || raw.startsWith("#") || /^data:/i.test(raw)) return whole;
+
+      if (
+        !raw ||
+        raw.startsWith("#") ||
+        /^data:/i.test(raw)
+      ) {
+        return whole;
+      }
 
       const absolute = resolveUrl(raw, baseHref);
       if (!absolute) return whole;
 
       const local = localUrlFor(absolute);
-      if (local) return `url("${local}")`;
-
-      return 'url("data:,")';
+      return local
+        ? `url("${local}")`
+        : 'url("data:,")';
     }
   );
 }
@@ -106,27 +179,40 @@ function rewriteSrcset(value, baseHref, localUrlFor) {
       const pieces = trimmed.split(/\s+/);
       const raw = pieces.shift();
       const absolute = resolveUrl(raw, baseHref);
-      const local = absolute ? localUrlFor(absolute) : null;
+      const local = absolute
+        ? localUrlFor(absolute)
+        : null;
 
-      return [local || raw, ...pieces].join(" ");
+      return [local || "data:,", ...pieces].join(" ");
     })
     .join(", ");
 }
 
-function rewriteHtmlAssets(html, baseHref, localUrlFor) {
+function rewriteHtmlAssets(
+  html,
+  baseHref,
+  localUrlFor,
+  mode
+) {
   let rewritten = html;
 
   rewritten = rewritten.replace(
-    /\b(src|poster|data|href|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+    /\b(src|poster|data|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
     (whole, name, doubleValue, singleValue) => {
       const raw = doubleValue ?? singleValue ?? "";
       const absolute = resolveUrl(raw, baseHref);
+
       if (!absolute) return whole;
 
       const local = localUrlFor(absolute);
-      if (!local) return whole;
 
-      return `${name}="${local}"`;
+      if (local) {
+        return `${name}="${local}"`;
+      }
+
+      return `${name}="data:," data-recovery-missing="${escapeHtml(
+        absolute
+      )}"`;
     }
   );
 
@@ -134,21 +220,93 @@ function rewriteHtmlAssets(html, baseHref, localUrlFor) {
     /\bsrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
     (whole, doubleValue, singleValue) => {
       const value = doubleValue ?? singleValue ?? "";
-      return `srcset="${rewriteSrcset(value, baseHref, localUrlFor)}"`;
+      return `srcset="${rewriteSrcset(
+        value,
+        baseHref,
+        localUrlFor
+      )}"`;
     }
   );
 
-  rewritten = rewritten.replace(
-    /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
-    (whole, doubleValue, singleValue) => {
-      const value = doubleValue ?? singleValue ?? "";
-      const css = rewriteCssUrls(value, baseHref, localUrlFor)
-        .replaceAll('"', "&quot;");
-      return `style="${css}"`;
-    }
-  );
+  if (mode === "normal") {
+    rewritten = rewritten.replace(
+      /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+      (whole, doubleValue, singleValue) => {
+        const value =
+          doubleValue ?? singleValue ?? "";
+        const css = rewriteCssUrls(
+          value,
+          baseHref,
+          localUrlFor
+        ).replaceAll('"', "&quot;");
+        return `style="${css}"`;
+      }
+    );
+  } else {
+    rewritten = rewritten
+      .replace(
+        /\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+        ""
+      )
+      .replace(
+        /\sclass\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+        ""
+      );
+  }
 
   return rewritten;
+}
+
+function plainTextFromHtml(html) {
+  let working = removeActiveContent(html);
+
+  working = working.replace(
+    /<img\b[^>]*\balt\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi,
+    (_, a, b) => `\n[Image: ${a ?? b ?? ""}]\n`
+  );
+
+  working = working
+    .replace(
+      /<(?:br|hr)\b[^>]*\/?>/gi,
+      "\n"
+    )
+    .replace(
+      /<\/(?:p|div|section|article|aside|figure|figcaption|blockquote|li|tr|h[1-6])>/gi,
+      "\n"
+    )
+    .replace(
+      /<\/(?:td|th)>/gi,
+      "\t"
+    )
+    .replace(
+      /<[^>]+>/g,
+      " "
+    );
+
+  const decoded = decodeHtmlEntities(working)
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return decoded;
+}
+
+function plainTextToHtml(text) {
+  return text
+    .split(/\n{2,}/)
+    .map((block) => {
+      const cleaned = block
+        .split("\n")
+        .map((line) => escapeHtml(line.trim()))
+        .filter(Boolean)
+        .join("<br>");
+      return cleaned ? `<p>${cleaned}</p>` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 async function fileExists(filePath) {
@@ -176,32 +334,113 @@ function captureLabel(entry) {
   return `aux_after_${after}_${ordinal}`;
 }
 
+const safeCss = `
+body {
+  max-width: 8.2in;
+  margin: 0 auto;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11pt;
+  line-height: 1.48;
+  color: #111;
+  background: white;
+}
+h1, h2, h3, h4, h5, h6 {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+p, li {
+  orphans: 3;
+  widows: 3;
+}
+img, svg, video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.15in auto;
+}
+figure {
+  margin: 0.2in 0;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.15in 0;
+}
+td, th {
+  border: 1px solid #999;
+  padding: 0.06in;
+  vertical-align: top;
+}
+blockquote {
+  margin: 0.15in 0.25in;
+}
+[data-recovery-missing] {
+  outline: 1px dashed #999;
+}
+`;
+
+const plainCss = `
+body {
+  max-width: 7.4in;
+  margin: 0 auto;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12pt;
+  line-height: 1.55;
+  color: #111;
+  background: white;
+}
+p {
+  margin: 0 0 0.14in;
+}
+.recovery-fragment {
+  margin-bottom: 0.12in;
+}
+`;
+
 try {
-  const manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
-  const inventory = JSON.parse(await fs.readFile(inventoryPath, "utf8"));
+  const manifest = JSON.parse(
+    await fs.readFile(MANIFEST_PATH, "utf8")
+  );
+
+  let inventory = { assets: [] };
+
+  try {
+    inventory = JSON.parse(
+      await fs.readFile(inventoryPath, "utf8")
+    );
+  } catch (error) {
+    if (renderMode === "normal" && error.code === "ENOENT") {
+      throw error;
+    }
+  }
 
   const analysis = analyzeChapterCaptures(
     manifest.captures || [],
     chapterNumber
   );
 
-  const captures = sortChapterCaptures(analysis.captures);
+  const captures = sortChapterCaptures(
+    analysis.captures
+  );
 
   if (!captures.length) {
-    throw new Error(`No captured XHTML fragments found for Chapter ${chapterNumber}.`);
+    throw new Error(
+      `No captured XHTML fragments found for Chapter ${chapterNumber}.`
+    );
   }
 
   if (analysis.knownLinkedMissing.length) {
     throw new Error(
       `Chapter ${chapterNumber} explicitly references uncaptured reader fragments: ` +
-      `${analysis.knownLinkedMissing.join(", ")}. Re-run the scoped capture before assembling.`
+      `${analysis.knownLinkedMissing.join(", ")}. Re-record this chapter before assembling.`
     );
   }
 
   if (analysis.numericGaps.length) {
     const message =
       `Chapter ${chapterNumber} has non-contiguous reader file IDs: ` +
-      `${analysis.numericGaps.join(", ")}. Reader IDs are not assumed to be continuous.`;
+      `${analysis.numericGaps.join(", ")}.`;
 
     if (strictReaderSequence) {
       throw new Error(
@@ -211,13 +450,7 @@ try {
 
     console.log(`\n[warning] ${message}`);
     console.log(
-      "Assembly will continue because none of those IDs are explicitly referenced by the captured XHTML."
-    );
-  }
-
-  if (analysis.auxiliaryCount) {
-    console.log(
-      `[info] Including ${analysis.auxiliaryCount} manually observed auxiliary XHTML fragment(s) in chapter order.`
+      "Reader IDs are file identifiers and are not assumed to be continuous."
     );
   }
 
@@ -225,30 +458,38 @@ try {
 
   for (const entry of inventory.assets || []) {
     const abs = path.join(assetRoot, entry.localFile);
+
     if (await fileExists(abs)) {
-      localMap.set(normalizeUrl(entry.url), pathToFileURL(abs).href);
+      localMap.set(
+        normalizeUrl(entry.url),
+        pathToFileURL(abs).href
+      );
     }
   }
 
-  const localUrlFor = (url) => localMap.get(normalizeUrl(url)) || null;
+  const localUrlFor = (url) =>
+    localMap.get(normalizeUrl(url)) || null;
 
   const publisherCss = [];
 
-  for (const entry of inventory.assets || []) {
-    if (!(entry.kinds || []).includes("stylesheet")) continue;
+  if (renderMode === "normal") {
+    for (const entry of inventory.assets || []) {
+      if (!(entry.kinds || []).includes("stylesheet")) {
+        continue;
+      }
 
-    const abs = path.join(assetRoot, entry.localFile);
-    if (!(await fileExists(abs))) {
-      // A stylesheet that came only from generic CSS dependency expansion is
-      // supplemental. Direct asset validation is responsible for blocking
-      // genuinely required chapter stylesheets.
-      continue;
+      const abs = path.join(assetRoot, entry.localFile);
+      if (!(await fileExists(abs))) continue;
+
+      const css = await fs.readFile(abs, "utf8");
+      publisherCss.push(
+        `/* ${entry.url} */\n${rewriteCssUrls(
+          css,
+          entry.url,
+          localUrlFor
+        )}`
+      );
     }
-
-    const css = await fs.readFile(abs, "utf8");
-    publisherCss.push(
-      `/* ${entry.url} */\n${rewriteCssUrls(css, entry.url, localUrlFor)}`
-    );
   }
 
   const bodyClasses = new Set();
@@ -256,20 +497,54 @@ try {
   const fragments = [];
 
   for (const entry of captures) {
-    const capturePath = path.join(CAPTURE_ROOT, entry.savedAs);
-    const xhtml = await fs.readFile(capturePath, "utf8");
+    const capturePath = path.join(
+      CAPTURE_ROOT,
+      entry.savedAs
+    );
 
-    const body = extractBody(xhtml);
-    for (const className of body.classes) bodyClasses.add(className);
+    const xhtml = await fs.readFile(
+      capturePath,
+      "utf8"
+    );
 
-    for (const css of extractInlineStyles(xhtml)) {
-      inlineStyles.push(
-        rewriteCssUrls(css, entry.baseHref, localUrlFor)
+    if (renderMode === "plain") {
+      const text = plainTextFromHtml(xhtml);
+
+      fragments.push(
+        `<!-- ${chapterLabel} ${captureLabel(entry)} -->\n` +
+        `<section class="recovery-fragment">\n` +
+        `${plainTextToHtml(text)}\n` +
+        `</section>`
       );
+
+      continue;
     }
 
-    const cleaned = removeScripts(body.inner);
-    const rewritten = rewriteHtmlAssets(cleaned, entry.baseHref, localUrlFor);
+    const body = extractBody(xhtml);
+
+    if (renderMode === "normal") {
+      for (const className of body.classes) {
+        bodyClasses.add(className);
+      }
+
+      for (const css of extractInlineStyles(xhtml)) {
+        inlineStyles.push(
+          rewriteCssUrls(
+            css,
+            entry.baseHref,
+            localUrlFor
+          )
+        );
+      }
+    }
+
+    const cleaned = removeActiveContent(body.inner);
+    const rewritten = rewriteHtmlAssets(
+      cleaned,
+      entry.baseHref,
+      localUrlFor,
+      renderMode
+    );
 
     fragments.push(
       `<!-- ${chapterLabel} ${captureLabel(entry)} -->\n${rewritten}`
@@ -281,7 +556,6 @@ try {
     `Chapter ${chapterNumber}`;
 
   const reconstructionCss = `
-/* terrible_mouse_recovery_target reconstruction overrides */
 html, body {
   height: auto !important;
   max-height: none !important;
@@ -301,19 +575,28 @@ img, svg, video, canvas {
 }
 `;
 
+  const modeCss =
+    renderMode === "normal"
+      ? ""
+      : renderMode === "safe"
+        ? safeCss
+        : plainCss;
+
   const output = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title>
+<meta name="recovery-render-mode" content="${renderMode}">
+<title>${escapeHtml(title)}</title>
 <style>
 ${publisherCss.join("\n\n")}
-${inlineStyles.join("\n\n")}
+${renderMode === "normal" ? inlineStyles.join("\n\n") : ""}
 ${reconstructionCss}
+${modeCss}
 </style>
 </head>
-<body class="${[...bodyClasses].join(" ")}">
+<body class="${renderMode === "normal" ? [...bodyClasses].join(" ") : ""}">
 ${fragments.join("\n\n")}
 </body>
 </html>
@@ -324,6 +607,7 @@ ${fragments.join("\n\n")}
 
   console.log("\nChapter reconstruction assembled\n");
   console.log(`Chapter: ${chapterNumber}`);
+  console.log(`Render mode: ${renderMode}`);
   console.log(`Reader fragments: ${analysis.readerNumbers.length}`);
   console.log(`Auxiliary fragments: ${analysis.auxiliaryCount}`);
   console.log(`Total XHTML fragments: ${captures.length}`);

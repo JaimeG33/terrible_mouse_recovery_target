@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
-
-const STRUCTURE_ROOT = path.join(PROJECT_ROOT, "structure");
+import { MANIFEST_PATH, STRUCTURE_ROOT } from "./config.mjs";
 const TOC_PATH = path.join(STRUCTURE_ROOT, "toc.json");
 const REPORT_PATH = path.join(STRUCTURE_ROOT, "discovery-report.json");
 

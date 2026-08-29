@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { PROJECT_ROOT } from "./config.mjs";
+import { OUTPUT_ROOT } from "./config.mjs";
 import { connectToChrome } from "./reader.mjs";
 
 const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "1", 10);
@@ -12,7 +12,7 @@ if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
 
 const pad2 = (value) => String(value).padStart(2, "0");
 const chapterLabel = `chapter${pad2(chapterNumber)}`;
-const outputRoot = path.join(PROJECT_ROOT, "output", chapterLabel);
+const outputRoot = path.join(OUTPUT_ROOT, chapterLabel);
 const htmlPath = path.join(outputRoot, `${chapterLabel}.html`);
 const pdfPath = path.join(outputRoot, `${chapterLabel}.pdf`);
 

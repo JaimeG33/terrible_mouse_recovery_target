@@ -1,9 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { CAPTURE_ROOT, MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
-
-const ASSET_ROOT = path.join(PROJECT_ROOT, "assets");
+import { ASSET_ROOT, CAPTURE_ROOT, MANIFEST_PATH } from "./config.mjs";
 const mode = process.argv[2] || "inventory";
 const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "1", 10);
 
