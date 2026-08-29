@@ -1,6 +1,6 @@
 {
   "name": "to-spite-ghislaine-maxwell",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "Manual-navigation accessibility/recovery helper for supported McGraw Hill EPUB reader books.",
@@ -17,6 +17,8 @@
     "status": "node src/status.mjs",
     "books": "node src/book-manager.mjs list",
     "book:use-current": "node src/book-manager.mjs use-current",
+    "runtime:migrate": "node src/migrate-runtime.mjs",
+    "runtime:doctor": "node src/runtime-doctor.mjs",
     "assets:inventory": "node src/assets.mjs inventory",
     "assets:download": "node src/assets.mjs download",
     "assets:capture": "node src/assets-capture.mjs",
