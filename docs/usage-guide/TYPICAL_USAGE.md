@@ -1,68 +1,67 @@
 # Typical Usage
 
-## Recommended one-pass workflow
-
-Start dedicated Chrome:
+## 1. Start dedicated Chrome
 
 ```powershell
 npm run chrome:start
 ```
 
-Sign in and open the intended McGraw Hill book.
-
-Start a chapter recording:
+## 2. Record
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action record
 ```
 
-Expected sequence:
+Wait for:
 
 ```text
-Active book selected
-...
-Launching one-pass chapter recorder...
-...
 ONE-PASS CHAPTER RECORDING READY
 ```
 
-Version 0.6.3 fixes the CDP lifecycle bug that could leave the book-selection Node process running after `Active book selected`.
+Version 0.6.5 disables the Chrome cache during recording so a manual revisit can produce fresh asset responses.
 
-Do not navigate until `READY`.
+If you started while already inside the chapter, use the TOC to re-enter its beginning after `READY`.
 
-Then manually traverse the entire chapter. Stop with `Ctrl+C` when you reach the next chapter.
+Then manually traverse the chapter and stop with `Ctrl+C`.
 
-Check:
+## 3. Check
 
 ```powershell
 npm run status
 ```
 
-When `knownMissing` is `none`, build:
+`knownMissing` should be `none`.
+
+## 4. Build
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build
 ```
 
-The build pipeline performs:
+The build runs validation, inventory, staged-asset promotion, asset health, assembly, and PDF rendering.
+
+If an asset is missing, the automatic recovery menu can keep normal formatting everywhere except the affected captured fragment.
+
+## Output names
+
+Normal:
 
 ```text
-chapter validation
--> asset inventory
--> staged asset promotion
--> asset validation
--> assembly
--> PDF rendering
+chapter03.pdf
 ```
 
-## If the one-pass workflow has a regression
-
-The independent two-pass workflow used while developing Chapters 1 and 2 is intentionally retained.
-
-See:
+Whole-chapter fallbacks:
 
 ```text
-docs/usage-guide/LEGACY_RECORDING.md
+chapter03_safe-formatting.pdf
+chapter03_bare-bones.pdf
 ```
 
-That workflow runs XHTML capture and asset capture as separate long-running Node processes.
+Partial fallbacks:
+
+```text
+chapter03_partial-safe.pdf
+chapter03_partial-bare-bones.pdf
+```
+
+Alternative names are intentional so they cannot be mistaken for a fully normal reconstruction.

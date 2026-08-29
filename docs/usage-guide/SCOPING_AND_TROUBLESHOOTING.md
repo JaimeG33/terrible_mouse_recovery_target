@@ -1,53 +1,33 @@
 # Scoping and Troubleshooting
 
-## Recording readiness
+## Missing image from `reader_01.xhtml`
 
-A successful one-pass recording must reach:
+If XHTML capture succeeds but asset promotion reports a direct image as `not-seen-during-recording`, the image existed in the captured HTML but no usable matching Chrome response was staged.
 
-```text
-ONE-PASS CHAPTER RECORDING READY
-```
+This can happen when recording begins while that image is already loaded in browser cache.
 
-Do not navigate before that line.
+Version 0.6.5 disables cache during active recording. If you start inside the chapter, manually re-enter its beginning after `READY`.
 
-## Build stops at Stage 1 even though `status` says `knownMissing: none`
+You do not need to erase the whole chapter to repair one opening asset. Re-run `record`, revisit the affected opening page/fragment, then stop.
 
-Version 0.6.3 had a PowerShell output-capture bug in `scripts/build-chapter.ps1`.
+## Asset response body warnings
 
-The build helper returned an exit code from a function whose npm stdout was also PowerShell pipeline output. Assigning the function call to `$exitCode` captured both the console text and the integer exit code.
+The old one-pass recorder serialized response-body reads. Fast navigation could make later response bodies unavailable before their turn.
 
-That could make a successful validator look nonzero and also hide its output.
+Version 0.6.5 reads bodies immediately and only serializes disk/index writes. A failed URL is not permanently marked as seen, so a later manual reload can retry it.
 
-Version 0.6.4 stores `$LASTEXITCODE` separately and leaves command output visible.
+## Partial fallback granularity
 
-After updating, Stage 1 should print the full `chapter:validate` report before deciding whether to continue.
+Asset health records the captured XHTML file(s) that reference a missing resource.
 
-## `record` stops after `Active book selected`
+Partial fallback is applied to those captured fragments.
 
-Version 0.6.3 fixes the short-lived book-manager CDP lifecycle so it exits after registry writes without closing dedicated Chrome.
+Because one `reader_N.xhtml` can contain several printed page markers, the current implementation should be described as fragment-level recovery, not guaranteed single-print-page recovery.
 
 ## `knownMissing`
 
-If `npm run status` lists values under `knownMissing`, re-record and revisit the relevant chapter portion.
-
-A numeric reader-ID gap by itself is informational.
+Known missing XHTML/text remains blocking.
 
 ## Legacy fallback
 
-See:
-
-```text
-docs/usage-guide/LEGACY_RECORDING.md
-```
-
-for the independent XHTML + asset two-pass workflow.
-
-## Opening assets
-
-If recording starts while already inside the target chapter, wait for `READY`, then re-enter the chapter beginning through the TOC.
-
-## Recovery
-
-```powershell
-.\scripts\chapter.ps1 -Chapter 3 -Action reset
-```
+Use `LEGACY_RECORDING.md` if you want XHTML and assets captured in separate manual passes.

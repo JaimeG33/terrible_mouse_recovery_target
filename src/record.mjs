@@ -17,7 +17,10 @@ import {
   saveSnapshot
 } from "./reader.mjs";
 
-const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "", 10);
+const chapterNumber = Number.parseInt(
+  process.env.MHE_CHAPTER || "",
+  10
+);
 
 if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
   throw new Error(
@@ -31,10 +34,17 @@ if (!ACTIVE_BOOK_ID) {
   );
 }
 
-const chapterLabel = `chapter${String(chapterNumber).padStart(2, "0")}`;
-const stagingChapterRoot = path.join(STAGING_ROOT, chapterLabel);
-const responseRoot = path.join(stagingChapterRoot, "responses");
-const stagingIndexPath = path.join(stagingChapterRoot, "index.json");
+const chapterLabel =
+  `chapter${String(chapterNumber).padStart(2, "0")}`;
+
+const stagingChapterRoot =
+  path.join(STAGING_ROOT, chapterLabel);
+
+const responseRoot =
+  path.join(stagingChapterRoot, "responses");
+
+const stagingIndexPath =
+  path.join(stagingChapterRoot, "index.json");
 
 let stopping = false;
 let fatalError = null;
@@ -42,13 +52,17 @@ let bookScope = null;
 let lastKnownReader = null;
 let lastOutsideScope = "";
 let captureQueue = Promise.resolve();
-let responseQueue = Promise.resolve();
+let responseWriteQueue = Promise.resolve();
+let cacheSession = null;
+let stagingIndex = null;
 
 const attachedPages = new WeakSet();
 const scheduledBases = new Set();
 const completedBases = new Set();
 const auxCounters = new Map();
-const seenResponseUrls = new Set();
+const savedResponseUrls = new Set();
+const inFlightResponseUrls = new Set();
+const pendingResponseTasks = new Set();
 
 let xhtmlSaved = 0;
 let auxiliarySaved = 0;
@@ -59,18 +73,27 @@ let assetBodyErrors = 0;
 process.on("SIGINT", () => {
   stopping = true;
 });
+
 process.on("SIGTERM", () => {
   stopping = true;
 });
 
 function sha256(value) {
-  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(value, "utf8")
+    .digest("hex");
 }
 
 function extFromUrl(url) {
   try {
-    const ext = path.extname(new URL(url).pathname);
-    if (/^\.[a-z0-9]{1,8}$/i.test(ext)) return ext.toLowerCase();
+    const ext = path.extname(
+      new URL(url).pathname
+    );
+
+    if (/^\.[a-z0-9]{1,8}$/i.test(ext)) {
+      return ext.toLowerCase();
+    }
   } catch {
     // Fall through.
   }
@@ -89,38 +112,60 @@ function normalizeUrl(value) {
 }
 
 function nextAuxOrder(afterReaderNumber) {
-  const key = String(afterReaderNumber ?? 0);
-  const next = (auxCounters.get(key) || 0) + 1;
+  const key =
+    String(afterReaderNumber ?? 0);
+
+  const next =
+    (auxCounters.get(key) || 0) + 1;
+
   auxCounters.set(key, next);
   return next;
 }
 
 function responseEligible(response) {
-  const url = normalizeUrl(response.url());
+  const url =
+    normalizeUrl(response.url());
 
-  if (!url || !bookScope?.bookRoot) return false;
+  if (!url || !bookScope?.bookRoot) {
+    return false;
+  }
 
-  const fromBook = url.startsWith(bookScope.bookRoot);
+  const fromBook =
+    url.startsWith(bookScope.bookRoot);
+
   const readerIframeStyle =
     /^https:\/\/(?:prod\.)?reader-ui\.prod\.mheducation\.com\/epub-iframe-styles\.css/i.test(
       url
     );
 
-  if (!fromBook && !readerIframeStyle) return false;
+  if (!fromBook && !readerIframeStyle) {
+    return false;
+  }
 
-  const resourceType = response.request().resourceType();
-  const contentType = (
-    response.headers()["content-type"] || ""
-  ).toLowerCase();
+  const resourceType =
+    response.request().resourceType();
+
+  const contentType =
+    (
+      response.headers()["content-type"] ||
+      ""
+    ).toLowerCase();
 
   if (
-    ["image", "stylesheet", "font", "media"].includes(resourceType)
+    [
+      "image",
+      "stylesheet",
+      "font",
+      "media"
+    ].includes(resourceType)
   ) {
     return true;
   }
 
   if (
-    /^(?:image\/|font\/|audio\/|video\/|text\/css)/i.test(contentType)
+    /^(?:image\/|font\/|audio\/|video\/|text\/css)/i.test(
+      contentType
+    )
   ) {
     return true;
   }
@@ -132,112 +177,219 @@ function responseEligible(response) {
 
 async function readStagingIndex() {
   try {
-    return JSON.parse(await fs.readFile(stagingIndexPath, "utf8"));
+    return JSON.parse(
+      await fs.readFile(
+        stagingIndexPath,
+        "utf8"
+      )
+    );
   } catch (error) {
     if (error.code === "ENOENT") {
       return {
         schemaVersion: 1,
         bookId: ACTIVE_BOOK_ID,
         chapterNumber,
-        createdAt: new Date().toISOString(),
+        createdAt:
+          new Date().toISOString(),
         responses: []
       };
     }
+
     throw error;
   }
 }
 
-async function writeStagingIndex(index) {
-  await fs.mkdir(stagingChapterRoot, { recursive: true });
-  index.updatedAt = new Date().toISOString();
-  index.responseCount = index.responses.length;
+async function saveStagingIndex() {
+  await fs.mkdir(
+    stagingChapterRoot,
+    { recursive: true }
+  );
+
+  stagingIndex.updatedAt =
+    new Date().toISOString();
+
+  stagingIndex.responseCount =
+    stagingIndex.responses.length;
+
   await fs.writeFile(
     stagingIndexPath,
-    `${JSON.stringify(index, null, 2)}\n`,
+    `${JSON.stringify(
+      stagingIndex,
+      null,
+      2
+    )}\n`,
     "utf8"
   );
 }
 
-async function stageResponse(response) {
-  if (!responseEligible(response)) return;
+function queueStagingWrite(row, body) {
+  const task =
+    responseWriteQueue.then(
+      async () => {
+        const absPath =
+          path.join(
+            stagingChapterRoot,
+            row.localFile
+          );
 
-  const url = normalizeUrl(response.url());
-  if (seenResponseUrls.has(url)) {
+        await fs.mkdir(
+          path.dirname(absPath),
+          { recursive: true }
+        );
+
+        await fs.writeFile(
+          absPath,
+          body
+        );
+
+        const existing =
+          stagingIndex.responses.find(
+            (entry) =>
+              normalizeUrl(entry.url) ===
+              normalizeUrl(row.url)
+          );
+
+        if (existing) {
+          Object.assign(existing, row);
+        } else {
+          stagingIndex.responses.push(row);
+        }
+
+        await saveStagingIndex();
+      }
+    );
+
+  responseWriteQueue =
+    task.catch(() => {});
+
+  return task;
+}
+
+function stageResponse(response) {
+  if (!responseEligible(response)) {
+    return;
+  }
+
+  const url =
+    normalizeUrl(response.url());
+
+  if (
+    savedResponseUrls.has(url) ||
+    inFlightResponseUrls.has(url)
+  ) {
     assetsSeen += 1;
     return;
   }
 
-  seenResponseUrls.add(url);
+  inFlightResponseUrls.add(url);
 
-  const task = async () => {
+  // Start reading the response body immediately. The old one-pass
+  // implementation serialized response.body() behind every earlier asset.
+  // Fast page navigation can make a later body unavailable before its turn.
+  const task = (async () => {
     try {
-      const status = response.status();
-      if (status < 200 || status >= 400) return;
+      const status =
+        response.status();
 
-      const body = await response.body();
-      if (!body?.length) return;
+      if (status < 200 || status >= 400) {
+        return;
+      }
 
-      const fileName = `${sha256(url)}${extFromUrl(url)}`;
-      const localFile = `responses/${fileName}`;
-      const absPath = path.join(stagingChapterRoot, localFile);
+      const body =
+        await response.body();
 
-      await fs.mkdir(responseRoot, { recursive: true });
-      await fs.writeFile(absPath, body);
+      if (!body?.length) {
+        return;
+      }
 
-      const index = await readStagingIndex();
-      const existing = index.responses.find(
-        (entry) => normalizeUrl(entry.url) === url
-      );
+      const fileName =
+        `${sha256(url)}${extFromUrl(url)}`;
 
       const row = {
         url,
-        localFile,
+        localFile:
+          `responses/${fileName}`,
         status,
         bytes: body.length,
-        contentType: response.headers()["content-type"] || "",
-        resourceType: response.request().resourceType(),
-        capturedAt: new Date().toISOString()
+        contentType:
+          response.headers()[
+            "content-type"
+          ] || "",
+        resourceType:
+          response
+            .request()
+            .resourceType(),
+        capturedAt:
+          new Date().toISOString()
       };
 
-      if (existing) {
-        Object.assign(existing, row);
-      } else {
-        index.responses.push(row);
-      }
+      await queueStagingWrite(
+        row,
+        body
+      );
 
-      await writeStagingIndex(index);
+      savedResponseUrls.add(url);
       assetsStaged += 1;
 
       console.log(
-        `[asset] ${fileName} (${body.length} bytes)`
+        `[asset] ${fileName} ` +
+        `(${body.length} bytes)`
       );
     } catch (error) {
       assetBodyErrors += 1;
-      console.log(
-        `[asset-warning] ${url} :: ${error.message.split("\n")[0]}`
-      );
-    }
-  };
 
-  responseQueue = responseQueue.then(task);
+      // Do not mark a failed URL as permanently seen. If Chrome requests
+      // it again later in the manual pass, we want another chance to save it.
+      console.log(
+        `[asset-warning] ${url} :: ` +
+        `${error.message.split("\n")[0]}`
+      );
+    } finally {
+      inFlightResponseUrls.delete(url);
+    }
+  })();
+
+  pendingResponseTasks.add(task);
+
+  task.finally(() =>
+    pendingResponseTasks.delete(task)
+  );
 }
 
 async function processSnapshot(snapshot) {
-  if (!snapshot.baseHref || !snapshot.html.trim()) return;
+  if (
+    !snapshot.baseHref ||
+    !snapshot.html.trim()
+  ) {
+    return;
+  }
 
-  const scope = await ensureBookScope(snapshot);
+  const scope =
+    await ensureBookScope(snapshot);
+
   bookScope = scope;
 
-  const location = parseReaderLocation(snapshot.baseHref);
+  const location =
+    parseReaderLocation(
+      snapshot.baseHref
+    );
 
-  if (location && location.chapterNumber !== chapterNumber) {
-    const key = `${location.chapterNumber}:${location.readerNumber}`;
+  if (
+    location &&
+    location.chapterNumber !== chapterNumber
+  ) {
+    const key =
+      `${location.chapterNumber}:` +
+      `${location.readerNumber}`;
 
     if (key !== lastOutsideScope) {
       lastOutsideScope = key;
+
       console.log(
-        `[outside-scope] current chapter=${location.chapterNumber} ` +
-        `reader=${location.readerNumber}; target chapter=${chapterNumber}; not saved`
+        `[outside-scope] current chapter=` +
+        `${location.chapterNumber} ` +
+        `reader=${location.readerNumber}; ` +
+        `target chapter=${chapterNumber}; not saved`
       );
     }
 
@@ -249,170 +401,404 @@ async function processSnapshot(snapshot) {
   let saveOptions = {};
 
   if (!location) {
-    const afterReaderNumber = Number.isInteger(lastKnownReader)
-      ? lastKnownReader
-      : 0;
+    const afterReaderNumber =
+      Number.isInteger(lastKnownReader)
+        ? lastKnownReader
+        : 0;
 
     saveOptions = {
-      chapterNumberOverride: chapterNumber,
+      chapterNumberOverride:
+        chapterNumber,
       afterReaderNumber,
-      auxOrderWithinGap: nextAuxOrder(afterReaderNumber)
+      auxOrderWithinGap:
+        nextAuxOrder(
+          afterReaderNumber
+        )
     };
   } else {
-    lastKnownReader = location.readerNumber;
+    lastKnownReader =
+      location.readerNumber;
   }
 
-  const result = await saveSnapshot(snapshot, saveOptions);
-  const d = describeSnapshot(snapshot);
+  const result =
+    await saveSnapshot(
+      snapshot,
+      saveOptions
+    );
+
+  const d =
+    describeSnapshot(snapshot);
 
   if (result.saved) {
-    if (result.entry.scopedAuxiliary) {
+    if (
+      result.entry.scopedAuxiliary
+    ) {
       auxiliarySaved += 1;
+
       console.log(
-        `[captured-aux] chapter=${chapterNumber} ` +
-        `afterReader=${result.entry.afterReaderNumber ?? "?"} ` +
-        `pages=${d.pageNumbers} -> ${result.entry.savedAs}`
+        `[captured-aux] chapter=` +
+        `${chapterNumber} ` +
+        `afterReader=` +
+        `${result.entry.afterReaderNumber ?? "?"} ` +
+        `pages=${d.pageNumbers} -> ` +
+        `${result.entry.savedAs}`
       );
     } else {
       xhtmlSaved += 1;
+
       console.log(
-        `[captured] chapter=${d.chapter} reader=${d.readerFragment} ` +
-        `pages=${d.pageNumbers} -> ${result.entry.savedAs}`
+        `[captured] chapter=${d.chapter} ` +
+        `reader=${d.readerFragment} ` +
+        `pages=${d.pageNumbers} -> ` +
+        `${result.entry.savedAs}`
       );
     }
-  } else if (result.reason === "duplicate") {
-    if (result.entry.scopedAuxiliary) {
+  } else if (
+    result.reason === "duplicate"
+  ) {
+    if (
+      result.entry.scopedAuxiliary
+    ) {
       console.log(
-        `[seen-aux] afterReader=${result.entry.afterReaderNumber ?? "?"}`
+        `[seen-aux] afterReader=` +
+        `${result.entry.afterReaderNumber ?? "?"}`
       );
     } else {
       console.log(
-        `[seen] chapter=${d.chapter} reader=${d.readerFragment}`
+        `[seen] chapter=${d.chapter} ` +
+        `reader=${d.readerFragment}`
       );
     }
   }
 }
 
 function scheduleSnapshot(snapshot) {
-  const key = snapshot.baseHref || `html:${snapshot.html.length}`;
+  const key =
+    snapshot.baseHref ||
+    `html:${snapshot.html.length}`;
 
-  if (completedBases.has(key) || scheduledBases.has(key)) {
+  if (
+    completedBases.has(key) ||
+    scheduledBases.has(key)
+  ) {
     return;
   }
 
   scheduledBases.add(key);
 
-  captureQueue = captureQueue
-    .then(async () => {
-      await processSnapshot(snapshot);
-      completedBases.add(key);
-    })
-    .catch((error) => {
-      fatalError = error;
-      stopping = true;
-    })
-    .finally(() => scheduledBases.delete(key));
+  captureQueue =
+    captureQueue
+      .then(async () => {
+        await processSnapshot(
+          snapshot
+        );
+
+        completedBases.add(key);
+      })
+      .catch((error) => {
+        fatalError = error;
+        stopping = true;
+      })
+      .finally(() =>
+        scheduledBases.delete(key)
+      );
 }
 
 async function attachListeners(page) {
-  if (attachedPages.has(page)) return;
+  if (attachedPages.has(page)) {
+    return;
+  }
+
   attachedPages.add(page);
 
-  page.on("response", (response) => {
-    stageResponse(response);
-  });
+  page.on(
+    "response",
+    stageResponse
+  );
 
-  page.on("framenavigated", async (frame) => {
-    if (stopping) return;
+  page.on(
+    "framenavigated",
+    async (frame) => {
+      if (stopping) {
+        return;
+      }
 
-    try {
-      const iframeHandle = await page.$("#clo-iframe");
-      if (!iframeHandle) return;
+      try {
+        const iframeHandle =
+          await page.$(
+            "#clo-iframe"
+          );
 
-      const readerFrame = await iframeHandle.contentFrame();
-      if (readerFrame !== frame) return;
+        if (!iframeHandle) {
+          return;
+        }
 
-      await frame
-        .waitForLoadState("domcontentloaded", { timeout: 2500 })
-        .catch(() => {});
+        const readerFrame =
+          await iframeHandle
+            .contentFrame();
 
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      scheduleSnapshot(
-        await getReaderSnapshotFromFrame(frame, page.url())
-      );
-    } catch {
-      // Polling remains the fallback.
+        if (
+          readerFrame !== frame
+        ) {
+          return;
+        }
+
+        await frame
+          .waitForLoadState(
+            "domcontentloaded",
+            { timeout: 2500 }
+          )
+          .catch(() => {});
+
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              60
+            )
+        );
+
+        scheduleSnapshot(
+          await getReaderSnapshotFromFrame(
+            frame,
+            page.url()
+          )
+        );
+      } catch {
+        // Polling remains the fallback.
+      }
     }
-  });
+  );
+}
+
+async function disableBrowserCache(page) {
+  try {
+    cacheSession =
+      await page
+        .context()
+        .newCDPSession(page);
+
+    await cacheSession.send(
+      "Network.enable"
+    );
+
+    await cacheSession.send(
+      "Network.setCacheDisabled",
+      { cacheDisabled: true }
+    );
+
+    console.log(
+      "Browser cache is disabled for this recording session so manual revisits produce fresh asset responses."
+    );
+
+    return true;
+  } catch (error) {
+    cacheSession = null;
+
+    console.log(
+      `[cache-warning] Could not disable Chrome cache for this session: ${error.message}`
+    );
+
+    return false;
+  }
+}
+
+async function restoreBrowserCache() {
+  if (!cacheSession) {
+    return;
+  }
+
+  await cacheSession
+    .send(
+      "Network.setCacheDisabled",
+      { cacheDisabled: false }
+    )
+    .catch(() => {});
+
+  await cacheSession
+    .detach()
+    .catch(() => {});
+
+  cacheSession = null;
 }
 
 try {
-  await fs.mkdir(responseRoot, { recursive: true });
+  await fs.mkdir(
+    responseRoot,
+    { recursive: true }
+  );
 
-  const browser = await connectToChrome();
-  const page = await findReaderPage(browser);
-  const initialSnapshot = await getReaderSnapshot(page);
+  stagingIndex =
+    await readStagingIndex();
 
-  bookScope = await ensureBookScope(initialSnapshot);
+  for (
+    const entry of
+    stagingIndex.responses || []
+  ) {
+    savedResponseUrls.add(
+      normalizeUrl(entry.url)
+    );
+  }
+
+  const browser =
+    await connectToChrome();
+
+  const page =
+    await findReaderPage(browser);
+
+  const initialSnapshot =
+    await getReaderSnapshot(page);
+
+  bookScope =
+    await ensureBookScope(
+      initialSnapshot
+    );
+
   await attachListeners(page);
 
-  const initialLocation = parseReaderLocation(initialSnapshot.baseHref);
+  const cacheDisabled =
+    await disableBrowserCache(page);
 
-  console.log("\nONE-PASS CHAPTER RECORDING READY\n");
-  console.log(`Book ID:  ${ACTIVE_BOOK_ID}`);
-  console.log(`Chapter:  ${chapterNumber}`);
+  const initialLocation =
+    parseReaderLocation(
+      initialSnapshot.baseHref
+    );
+
+  console.log(
+    "\nONE-PASS CHAPTER RECORDING READY\n"
+  );
+
+  console.log(
+    `Book ID:  ${ACTIVE_BOOK_ID}`
+  );
+
+  console.log(
+    `Chapter:  ${chapterNumber}`
+  );
+
   console.log("");
+
   console.log(
     "This records rendered XHTML and passively stages matching book images/styles/media at the same time."
   );
+
   console.log(
     "Manually traverse the chapter once. No automatic page navigation is performed."
   );
 
-  if (initialLocation?.chapterNumber === chapterNumber) {
+  if (
+    initialLocation?.chapterNumber ===
+    chapterNumber
+  ) {
     console.log("");
-    console.log(
-      "NOTE: You are already inside the target chapter. To capture opening assets reliably,"
-    );
-    console.log(
-      "manually use the TOC to re-enter the beginning of this chapter after this READY message."
-    );
+
+    if (cacheDisabled) {
+      console.log(
+        "IMPORTANT: You started inside the target chapter. Re-enter the beginning through the TOC after this READY message."
+      );
+
+      console.log(
+        "Cache is disabled during recording, so that manual revisit should generate fresh opening-image/resource responses."
+      );
+    } else {
+      console.log(
+        "IMPORTANT: You started inside the target chapter. Re-enter the beginning through the TOC after this READY message; starting outside the chapter is more reliable for opening assets."
+      );
+    }
   }
 
-  console.log("\nPress Ctrl+C when you reach the next chapter.\n");
+  console.log(
+    "\nPress Ctrl+C when you reach the next chapter.\n"
+  );
 
-  scheduleSnapshot(initialSnapshot);
+  scheduleSnapshot(
+    initialSnapshot
+  );
 
   while (!stopping) {
     try {
-      const currentPage = await findReaderPage(browser);
-      await attachListeners(currentPage);
-      scheduleSnapshot(await getReaderSnapshot(currentPage));
+      const currentPage =
+        await findReaderPage(
+          browser
+        );
+
+      await attachListeners(
+        currentPage
+      );
+
+      scheduleSnapshot(
+        await getReaderSnapshot(
+          currentPage
+        )
+      );
     } catch (error) {
-      console.log(`[waiting] ${error.message.split("\n")[0]}`);
+      console.log(
+        `[waiting] ${error.message.split("\n")[0]}`
+      );
     }
 
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    await new Promise(
+      (resolve) =>
+        setTimeout(
+          resolve,
+          POLL_MS
+        )
+    );
   }
 
   await captureQueue;
-  await responseQueue;
 
-  if (fatalError) throw fatalError;
+  await Promise.allSettled(
+    [...pendingResponseTasks]
+  );
 
-  console.log("\nOne-pass recording stopped.");
-  console.log(`New reader XHTML captures: ${xhtmlSaved}`);
-  console.log(`New auxiliary XHTML captures: ${auxiliarySaved}`);
-  console.log(`Assets staged this session: ${assetsStaged}`);
-  console.log(`Already seen asset responses: ${assetsSeen}`);
-  console.log(`Asset response warnings: ${assetBodyErrors}`);
-  console.log(`Staging index: ${stagingIndexPath}\n`);
+  await responseWriteQueue;
+
+  if (fatalError) {
+    throw fatalError;
+  }
+
+  console.log(
+    "\nOne-pass recording stopped."
+  );
+
+  console.log(
+    `New reader XHTML captures: ${xhtmlSaved}`
+  );
+
+  console.log(
+    `New auxiliary XHTML captures: ${auxiliarySaved}`
+  );
+
+  console.log(
+    `Assets staged this session: ${assetsStaged}`
+  );
+
+  console.log(
+    `Already cached/seen asset responses: ${assetsSeen}`
+  );
+
+  console.log(
+    `Asset response warnings: ${assetBodyErrors}`
+  );
+
+  console.log(
+    `Staging index: ${stagingIndexPath}\n`
+  );
+
   console.log(
     `Next: .\\scripts\\chapter.ps1 -Chapter ${chapterNumber} -Action build`
   );
 } catch (error) {
-  console.error(`\nRECORDING FAILED\n${error.message}\n`);
+  console.error(
+    `\nRECORDING FAILED\n${error.message}\n`
+  );
+
   process.exitCode = 1;
 } finally {
-  process.exit(process.exitCode || 0);
+  await restoreBrowserCache();
+
+  process.exit(
+    process.exitCode || 0
+  );
 }

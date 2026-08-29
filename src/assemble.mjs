@@ -18,30 +18,116 @@ const chapterNumber = Number.parseInt(
 );
 
 if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
-  throw new Error("MHE_CHAPTER must be a positive integer.");
+  throw new Error(
+    "MHE_CHAPTER must be a positive integer."
+  );
 }
 
-const renderMode = (
-  process.env.MHE_RENDER_MODE || "normal"
-).toLowerCase();
+const renderMode =
+  (
+    process.env.MHE_RENDER_MODE ||
+    "normal"
+  ).toLowerCase();
 
-if (!["normal", "safe", "plain"].includes(renderMode)) {
+const supportedModes = [
+  "normal",
+  "safe",
+  "plain",
+  "partial-safe",
+  "partial-plain"
+];
+
+if (!supportedModes.includes(renderMode)) {
   throw new Error(
-    "MHE_RENDER_MODE must be normal, safe, or plain."
+    "MHE_RENDER_MODE must be normal, safe, plain, partial-safe, or partial-plain."
   );
 }
 
 const strictReaderSequence =
   /^(?:1|true|yes)$/i.test(
-    process.env.MHE_STRICT_READER_SEQUENCE || ""
+    process.env.MHE_STRICT_READER_SEQUENCE ||
+      ""
   );
 
-const pad2 = (value) => String(value).padStart(2, "0");
-const chapterLabel = `chapter${pad2(chapterNumber)}`;
-const assetRoot = path.join(ASSET_ROOT, chapterLabel);
-const inventoryPath = path.join(assetRoot, "inventory.json");
-const outputRoot = path.join(OUTPUT_ROOT, chapterLabel);
-const htmlPath = path.join(outputRoot, `${chapterLabel}.html`);
+const partialFallbackFiles =
+  new Set(
+    String(
+      process.env
+        .MHE_PARTIAL_FALLBACK_FILES ||
+        ""
+    )
+      .split(";")
+      .map(
+        (value) =>
+          value.trim()
+      )
+      .filter(Boolean)
+  );
+
+const pad2 =
+  (value) =>
+    String(value).padStart(2, "0");
+
+const chapterLabel =
+  `chapter${pad2(chapterNumber)}`;
+
+const variantInfo = {
+  normal: {
+    fileSuffix: "",
+    titleSuffix: ""
+  },
+  safe: {
+    fileSuffix:
+      "_safe-formatting",
+    titleSuffix:
+      " — Safe Formatting"
+  },
+  plain: {
+    fileSuffix:
+      "_bare-bones",
+    titleSuffix:
+      " — Bare Bones"
+  },
+  "partial-safe": {
+    fileSuffix:
+      "_partial-safe",
+    titleSuffix:
+      " — Partial Safe"
+  },
+  "partial-plain": {
+    fileSuffix:
+      "_partial-bare-bones",
+    titleSuffix:
+      " — Partial Bare Bones"
+  }
+}[renderMode];
+
+const outputBaseName =
+  `${chapterLabel}${variantInfo.fileSuffix}`;
+
+const assetRoot =
+  path.join(
+    ASSET_ROOT,
+    chapterLabel
+  );
+
+const inventoryPath =
+  path.join(
+    assetRoot,
+    "inventory.json"
+  );
+
+const outputRoot =
+  path.join(
+    OUTPUT_ROOT,
+    chapterLabel
+  );
+
+const htmlPath =
+  path.join(
+    outputRoot,
+    `${outputBaseName}.html`
+  );
 
 function escapeHtml(value) {
   return String(value || "")
@@ -53,11 +139,19 @@ function escapeHtml(value) {
 
 function decodeHtmlEntities(value) {
   return String(value || "")
-    .replace(/&#(\d+);/g, (_, n) =>
-      String.fromCodePoint(Number.parseInt(n, 10))
+    .replace(
+      /&#(\d+);/g,
+      (_, n) =>
+        String.fromCodePoint(
+          Number.parseInt(n, 10)
+        )
     )
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) =>
-      String.fromCodePoint(Number.parseInt(n, 16))
+    .replace(
+      /&#x([0-9a-f]+);/gi,
+      (_, n) =>
+        String.fromCodePoint(
+          Number.parseInt(n, 16)
+        )
     )
     .replaceAll("&nbsp;", " ")
     .replaceAll("&amp;", "&")
@@ -69,7 +163,9 @@ function decodeHtmlEntities(value) {
 
 function normalizeUrl(value) {
   try {
-    const url = new URL(value);
+    const url =
+      new URL(value);
+
     url.hash = "";
     return url.href;
   } catch {
@@ -78,14 +174,39 @@ function normalizeUrl(value) {
 }
 
 function resolveUrl(raw, baseHref) {
-  const value = String(raw || "").trim();
+  const value =
+    String(raw || "").trim();
 
-  if (!value || value.startsWith("#")) return null;
-  if (/^(?:data|blob|javascript|mailto|tel):/i.test(value)) return null;
+  if (
+    !value ||
+    value.startsWith("#")
+  ) {
+    return null;
+  }
+
+  if (
+    /^(?:data|blob|javascript|mailto|tel):/i.test(
+      value
+    )
+  ) {
+    return null;
+  }
 
   try {
-    const url = new URL(value, baseHref);
-    if (!["http:", "https:"].includes(url.protocol)) return null;
+    const url =
+      new URL(
+        value,
+        baseHref
+      );
+
+    if (
+      !["http:", "https:"].includes(
+        url.protocol
+      )
+    ) {
+      return null;
+    }
+
     url.hash = "";
     return url.href;
   } catch {
@@ -94,9 +215,10 @@ function resolveUrl(raw, baseHref) {
 }
 
 function extractBody(html) {
-  const match = html.match(
-    /<body\b([^>]*)>([\s\S]*?)<\/body>/i
-  );
+  const match =
+    html.match(
+      /<body\b([^>]*)>([\s\S]*?)<\/body>/i
+    );
 
   if (!match) {
     throw new Error(
@@ -104,20 +226,26 @@ function extractBody(html) {
     );
   }
 
-  const attrs = match[1] || "";
-  const inner = match[2] || "";
-  const classMatch = attrs.match(
-    /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i
-  );
+  const attrs =
+    match[1] || "";
+
+  const inner =
+    match[2] || "";
+
+  const classMatch =
+    attrs.match(
+      /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/i
+    );
 
   return {
-    classes: (
-      classMatch?.[1] ||
-      classMatch?.[2] ||
-      ""
-    )
-      .split(/\s+/)
-      .filter(Boolean),
+    classes:
+      (
+        classMatch?.[1] ||
+        classMatch?.[2] ||
+        ""
+      )
+        .split(/\s+/)
+        .filter(Boolean),
     inner
   };
 }
@@ -128,7 +256,10 @@ function extractInlineStyles(html) {
       /<style\b[^>]*>([\s\S]*?)<\/style>/gi
     )
   ]
-    .map((match) => match[1] || "")
+    .map(
+      (match) =>
+        match[1] || ""
+    )
     .filter(Boolean);
 }
 
@@ -144,11 +275,21 @@ function removeActiveContent(html) {
     );
 }
 
-function rewriteCssUrls(css, baseHref, localUrlFor) {
+function rewriteCssUrls(
+  css,
+  baseHref,
+  localUrlFor
+) {
   return css.replace(
     /url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)/gi,
-    (whole, a, b, c) => {
-      const raw = a ?? b ?? c ?? "";
+    (
+      whole,
+      a,
+      b,
+      c
+    ) => {
+      const raw =
+        a ?? b ?? c ?? "";
 
       if (
         !raw ||
@@ -158,10 +299,21 @@ function rewriteCssUrls(css, baseHref, localUrlFor) {
         return whole;
       }
 
-      const absolute = resolveUrl(raw, baseHref);
-      if (!absolute) return whole;
+      const absolute =
+        resolveUrl(
+          raw,
+          baseHref
+        );
 
-      const local = localUrlFor(absolute);
+      if (!absolute) {
+        return whole;
+      }
+
+      const local =
+        localUrlFor(
+          absolute
+        );
+
       return local
         ? `url("${local}")`
         : 'url("data:,")';
@@ -169,23 +321,91 @@ function rewriteCssUrls(css, baseHref, localUrlFor) {
   );
 }
 
-function rewriteSrcset(value, baseHref, localUrlFor) {
+function rewriteSrcset(
+  value,
+  baseHref,
+  localUrlFor
+) {
   return value
     .split(",")
     .map((part) => {
-      const trimmed = part.trim();
-      if (!trimmed) return trimmed;
+      const trimmed =
+        part.trim();
 
-      const pieces = trimmed.split(/\s+/);
-      const raw = pieces.shift();
-      const absolute = resolveUrl(raw, baseHref);
-      const local = absolute
-        ? localUrlFor(absolute)
-        : null;
+      if (!trimmed) {
+        return trimmed;
+      }
 
-      return [local || "data:,", ...pieces].join(" ");
+      const pieces =
+        trimmed.split(/\s+/);
+
+      const raw =
+        pieces.shift();
+
+      const absolute =
+        resolveUrl(
+          raw,
+          baseHref
+        );
+
+      const local =
+        absolute
+          ? localUrlFor(
+              absolute
+            )
+          : null;
+
+      return [
+        local || "data:,",
+        ...pieces
+      ].join(" ");
     })
     .join(", ");
+}
+
+function getTagAttribute(
+  tag,
+  name
+) {
+  const regex =
+    new RegExp(
+      `\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,
+      "i"
+    );
+
+  const match =
+    tag.match(regex);
+
+  return (
+    match?.[1] ??
+    match?.[2] ??
+    null
+  );
+}
+
+function missingImagePlaceholder(
+  tag,
+  absoluteUrl
+) {
+  const alt =
+    getTagAttribute(
+      tag,
+      "alt"
+    );
+
+  const label =
+    alt?.trim()
+      ? `Missing image: ${alt.trim()}`
+      : "Missing image";
+
+  return (
+    `<div class="recovery-missing-asset" ` +
+    `data-recovery-missing="${escapeHtml(
+      absoluteUrl
+    )}">` +
+    `[${escapeHtml(label)}]` +
+    `</div>`
+  );
 }
 
 function rewriteHtmlAssets(
@@ -196,114 +416,241 @@ function rewriteHtmlAssets(
 ) {
   let rewritten = html;
 
-  rewritten = rewritten.replace(
-    /\b(src|poster|data|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
-    (whole, name, doubleValue, singleValue) => {
-      const raw = doubleValue ?? singleValue ?? "";
-      const absolute = resolveUrl(raw, baseHref);
+  if (mode !== "normal") {
+    rewritten =
+      rewritten.replace(
+        /<img\b[^>]*>/gi,
+        (tag) => {
+          const raw =
+            getTagAttribute(
+              tag,
+              "src"
+            );
 
-      if (!absolute) return whole;
+          const absolute =
+            resolveUrl(
+              raw,
+              baseHref
+            );
 
-      const local = localUrlFor(absolute);
+          if (
+            absolute &&
+            !localUrlFor(
+              absolute
+            )
+          ) {
+            return (
+              missingImagePlaceholder(
+                tag,
+                absolute
+              )
+            );
+          }
 
-      if (local) {
-        return `${name}="${local}"`;
-      }
+          return tag;
+        }
+      );
+  }
 
-      return `${name}="data:," data-recovery-missing="${escapeHtml(
-        absolute
-      )}"`;
-    }
-  );
+  rewritten =
+    rewritten.replace(
+      /\b(src|poster|data|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+      (
+        whole,
+        name,
+        doubleValue,
+        singleValue
+      ) => {
+        const raw =
+          doubleValue ??
+          singleValue ??
+          "";
 
-  rewritten = rewritten.replace(
-    /\bsrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
-    (whole, doubleValue, singleValue) => {
-      const value = doubleValue ?? singleValue ?? "";
-      return `srcset="${rewriteSrcset(
-        value,
-        baseHref,
-        localUrlFor
-      )}"`;
-    }
-  );
+        const absolute =
+          resolveUrl(
+            raw,
+            baseHref
+          );
 
-  if (mode === "normal") {
-    rewritten = rewritten.replace(
-      /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
-      (whole, doubleValue, singleValue) => {
-        const value =
-          doubleValue ?? singleValue ?? "";
-        const css = rewriteCssUrls(
-          value,
-          baseHref,
-          localUrlFor
-        ).replaceAll('"', "&quot;");
-        return `style="${css}"`;
+        if (!absolute) {
+          return whole;
+        }
+
+        const local =
+          localUrlFor(
+            absolute
+          );
+
+        if (local) {
+          return (
+            `${name}="${local}"`
+          );
+        }
+
+        return (
+          `${name}="data:," ` +
+          `data-recovery-missing="` +
+          `${escapeHtml(
+            absolute
+          )}"`
+        );
       }
     );
-  } else {
-    rewritten = rewritten
-      .replace(
-        /\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi,
-        ""
-      )
-      .replace(
-        /\sclass\s*=\s*(?:"[^"]*"|'[^']*')/gi,
-        ""
+
+  rewritten =
+    rewritten.replace(
+      /\bsrcset\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+      (
+        whole,
+        doubleValue,
+        singleValue
+      ) => {
+        const value =
+          doubleValue ??
+          singleValue ??
+          "";
+
+        return (
+          `srcset="${rewriteSrcset(
+            value,
+            baseHref,
+            localUrlFor
+          )}"`
+        );
+      }
+    );
+
+  if (mode === "normal") {
+    rewritten =
+      rewritten.replace(
+        /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+        (
+          whole,
+          doubleValue,
+          singleValue
+        ) => {
+          const value =
+            doubleValue ??
+            singleValue ??
+            "";
+
+          const css =
+            rewriteCssUrls(
+              value,
+              baseHref,
+              localUrlFor
+            ).replaceAll(
+              '"',
+              "&quot;"
+            );
+
+          return (
+            `style="${css}"`
+          );
+        }
       );
+  } else {
+    rewritten =
+      rewritten
+        .replace(
+          /\sstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+          ""
+        )
+        .replace(
+          /\sclass\s*=\s*(?:"[^"]*"|'[^']*')/gi,
+          ""
+        );
   }
 
   return rewritten;
 }
 
 function plainTextFromHtml(html) {
-  let working = removeActiveContent(html);
+  const body =
+    extractBody(
+      removeActiveContent(
+        html
+      )
+    ).inner;
 
-  working = working.replace(
-    /<img\b[^>]*\balt\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi,
-    (_, a, b) => `\n[Image: ${a ?? b ?? ""}]\n`
-  );
+  let working = body;
 
-  working = working
-    .replace(
-      /<(?:br|hr)\b[^>]*\/?>/gi,
-      "\n"
-    )
-    .replace(
-      /<\/(?:p|div|section|article|aside|figure|figcaption|blockquote|li|tr|h[1-6])>/gi,
-      "\n"
-    )
-    .replace(
-      /<\/(?:td|th)>/gi,
-      "\t"
-    )
-    .replace(
-      /<[^>]+>/g,
-      " "
+  working =
+    working.replace(
+      /<img\b[^>]*\balt\s*=\s*(?:"([^"]*)"|'([^']*)')[^>]*>/gi,
+      (
+        _,
+        a,
+        b
+      ) =>
+        `\n[Image: ${a ?? b ?? ""}]\n`
     );
 
-  const decoded = decodeHtmlEntities(working)
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  working =
+    working
+      .replace(
+        /<img\b[^>]*>/gi,
+        "\n[Image]\n"
+      )
+      .replace(
+        /<(?:br|hr)\b[^>]*\/?>/gi,
+        "\n"
+      )
+      .replace(
+        /<\/(?:p|div|section|article|aside|figure|figcaption|blockquote|li|tr|h[1-6])>/gi,
+        "\n"
+      )
+      .replace(
+        /<\/(?:td|th)>/gi,
+        "\t"
+      )
+      .replace(
+        /<[^>]+>/g,
+        " "
+      );
 
-  return decoded;
+  return decodeHtmlEntities(
+    working
+  )
+    .replace(/\r/g, "")
+    .replace(
+      /[ \t]+\n/g,
+      "\n"
+    )
+    .replace(
+      /\n[ \t]+/g,
+      "\n"
+    )
+    .replace(
+      /[ \t]{2,}/g,
+      " "
+    )
+    .replace(
+      /\n{3,}/g,
+      "\n\n"
+    )
+    .trim();
 }
 
 function plainTextToHtml(text) {
   return text
     .split(/\n{2,}/)
     .map((block) => {
-      const cleaned = block
-        .split("\n")
-        .map((line) => escapeHtml(line.trim()))
-        .filter(Boolean)
-        .join("<br>");
-      return cleaned ? `<p>${cleaned}</p>` : "";
+      const cleaned =
+        block
+          .split("\n")
+          .map(
+            (line) =>
+              escapeHtml(
+                line.trim()
+              )
+          )
+          .filter(Boolean)
+          .join("<br>");
+
+      return cleaned
+        ? `<p>${cleaned}</p>`
+        : "";
     })
     .filter(Boolean)
     .join("\n");
@@ -311,7 +658,11 @@ function plainTextToHtml(text) {
 
 async function fileExists(filePath) {
   try {
-    const stat = await fs.stat(filePath);
+    const stat =
+      await fs.stat(
+        filePath
+      );
+
     return stat.isFile();
   } catch {
     return false;
@@ -319,19 +670,76 @@ async function fileExists(filePath) {
 }
 
 function captureLabel(entry) {
-  if (Number.isInteger(entry.readerNumber)) {
-    return `reader_${pad2(entry.readerNumber)}`;
+  if (
+    Number.isInteger(
+      entry.readerNumber
+    )
+  ) {
+    return (
+      `reader_${pad2(
+        entry.readerNumber
+      )}`
+    );
   }
 
-  const after = Number.isInteger(entry.afterReaderNumber)
-    ? pad2(entry.afterReaderNumber)
-    : "unknown";
+  const after =
+    Number.isInteger(
+      entry.afterReaderNumber
+    )
+      ? pad2(
+          entry.afterReaderNumber
+        )
+      : "unknown";
 
-  const ordinal = Number.isInteger(entry.auxOrderWithinGap)
-    ? pad2(entry.auxOrderWithinGap)
-    : "01";
+  const ordinal =
+    Number.isInteger(
+      entry.auxOrderWithinGap
+    )
+      ? pad2(
+          entry.auxOrderWithinGap
+        )
+      : "01";
 
-  return `aux_after_${after}_${ordinal}`;
+  return (
+    `aux_after_${after}_${ordinal}`
+  );
+}
+
+function modeForCapture(entry) {
+  if (renderMode === "normal") {
+    return "normal";
+  }
+
+  if (renderMode === "safe") {
+    return "safe";
+  }
+
+  if (renderMode === "plain") {
+    return "plain";
+  }
+
+  if (
+    renderMode === "partial-safe"
+  ) {
+    return partialFallbackFiles.has(
+      entry.savedAs
+    )
+      ? "safe"
+      : "normal";
+  }
+
+  if (
+    renderMode ===
+    "partial-plain"
+  ) {
+    return partialFallbackFiles.has(
+      entry.savedAs
+    )
+      ? "plain"
+      : "normal";
+  }
+
+  return "normal";
 }
 
 const safeCss = `
@@ -375,8 +783,42 @@ td, th {
 blockquote {
   margin: 0.15in 0.25in;
 }
-[data-recovery-missing] {
-  outline: 1px dashed #999;
+`;
+
+const scopedSafeCss = `
+.recovery-safe-fragment {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 11pt !important;
+  line-height: 1.48 !important;
+  color: #111 !important;
+  background: white !important;
+}
+.recovery-safe-fragment h1,
+.recovery-safe-fragment h2,
+.recovery-safe-fragment h3,
+.recovery-safe-fragment h4,
+.recovery-safe-fragment h5,
+.recovery-safe-fragment h6 {
+  page-break-after: avoid !important;
+  break-after: avoid !important;
+}
+.recovery-safe-fragment img,
+.recovery-safe-fragment svg,
+.recovery-safe-fragment video {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 0.15in auto !important;
+}
+.recovery-safe-fragment table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+.recovery-safe-fragment td,
+.recovery-safe-fragment th {
+  border: 1px solid #999 !important;
+  padding: 0.06in !important;
+  vertical-align: top !important;
 }
 `;
 
@@ -393,36 +835,77 @@ body {
 p {
   margin: 0 0 0.14in;
 }
-.recovery-fragment {
-  margin-bottom: 0.12in;
+`;
+
+const scopedPlainCss = `
+.recovery-plain-fragment {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 12pt !important;
+  line-height: 1.55 !important;
+  color: #111 !important;
+  background: white !important;
+  margin: 0 0 0.12in !important;
+}
+.recovery-plain-fragment p {
+  margin: 0 0 0.14in !important;
+}
+`;
+
+const missingAssetCss = `
+.recovery-missing-asset {
+  display: block;
+  margin: 0.12in 0;
+  padding: 0.08in;
+  border: 1px dashed #777;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10pt;
 }
 `;
 
 try {
-  const manifest = JSON.parse(
-    await fs.readFile(MANIFEST_PATH, "utf8")
-  );
+  const manifest =
+    JSON.parse(
+      await fs.readFile(
+        MANIFEST_PATH,
+        "utf8"
+      )
+    );
 
-  let inventory = { assets: [] };
+  let inventory = {
+    assets: []
+  };
 
   try {
-    inventory = JSON.parse(
-      await fs.readFile(inventoryPath, "utf8")
-    );
+    inventory =
+      JSON.parse(
+        await fs.readFile(
+          inventoryPath,
+          "utf8"
+        )
+      );
   } catch (error) {
-    if (renderMode === "normal" && error.code === "ENOENT") {
+    if (
+      [
+        "normal",
+        "partial-safe",
+        "partial-plain"
+      ].includes(renderMode) &&
+      error.code === "ENOENT"
+    ) {
       throw error;
     }
   }
 
-  const analysis = analyzeChapterCaptures(
-    manifest.captures || [],
-    chapterNumber
-  );
+  const analysis =
+    analyzeChapterCaptures(
+      manifest.captures || [],
+      chapterNumber
+    );
 
-  const captures = sortChapterCaptures(
-    analysis.captures
-  );
+  const captures =
+    sortChapterCaptures(
+      analysis.captures
+    );
 
   if (!captures.length) {
     throw new Error(
@@ -430,14 +913,31 @@ try {
     );
   }
 
-  if (analysis.knownLinkedMissing.length) {
+  if (
+    analysis
+      .knownLinkedMissing
+      .length
+  ) {
     throw new Error(
       `Chapter ${chapterNumber} explicitly references uncaptured reader fragments: ` +
       `${analysis.knownLinkedMissing.join(", ")}. Re-record this chapter before assembling.`
     );
   }
 
-  if (analysis.numericGaps.length) {
+  if (
+    renderMode.startsWith(
+      "partial-"
+    ) &&
+    !partialFallbackFiles.size
+  ) {
+    throw new Error(
+      "Partial fallback was selected, but no affected captured fragments were supplied."
+    );
+  }
+
+  if (
+    analysis.numericGaps.length
+  ) {
     const message =
       `Chapter ${chapterNumber} has non-contiguous reader file IDs: ` +
       `${analysis.numericGaps.join(", ")}.`;
@@ -448,71 +948,135 @@ try {
       );
     }
 
-    console.log(`\n[warning] ${message}`);
+    console.log(
+      `\n[warning] ${message}`
+    );
+
     console.log(
       "Reader IDs are file identifiers and are not assumed to be continuous."
     );
   }
 
-  const localMap = new Map();
+  const localMap =
+    new Map();
 
-  for (const entry of inventory.assets || []) {
-    const abs = path.join(assetRoot, entry.localFile);
+  for (
+    const entry of
+    inventory.assets || []
+  ) {
+    const abs =
+      path.join(
+        assetRoot,
+        entry.localFile
+      );
 
-    if (await fileExists(abs)) {
+    if (
+      await fileExists(abs)
+    ) {
       localMap.set(
-        normalizeUrl(entry.url),
-        pathToFileURL(abs).href
+        normalizeUrl(
+          entry.url
+        ),
+        pathToFileURL(
+          abs
+        ).href
       );
     }
   }
 
-  const localUrlFor = (url) =>
-    localMap.get(normalizeUrl(url)) || null;
+  const localUrlFor =
+    (url) =>
+      localMap.get(
+        normalizeUrl(url)
+      ) || null;
+
+  const needsNormalStyles =
+    renderMode === "normal" ||
+    renderMode.startsWith(
+      "partial-"
+    );
 
   const publisherCss = [];
 
-  if (renderMode === "normal") {
-    for (const entry of inventory.assets || []) {
-      if (!(entry.kinds || []).includes("stylesheet")) {
+  if (needsNormalStyles) {
+    for (
+      const entry of
+      inventory.assets || []
+    ) {
+      if (
+        !(
+          entry.kinds || []
+        ).includes(
+          "stylesheet"
+        )
+      ) {
         continue;
       }
 
-      const abs = path.join(assetRoot, entry.localFile);
-      if (!(await fileExists(abs))) continue;
+      const abs =
+        path.join(
+          assetRoot,
+          entry.localFile
+        );
 
-      const css = await fs.readFile(abs, "utf8");
+      if (
+        !(await fileExists(abs))
+      ) {
+        continue;
+      }
+
+      const css =
+        await fs.readFile(
+          abs,
+          "utf8"
+        );
+
       publisherCss.push(
-        `/* ${entry.url} */\n${rewriteCssUrls(
+        `/* ${entry.url} */\n` +
+        rewriteCssUrls(
           css,
           entry.url,
           localUrlFor
-        )}`
+        )
       );
     }
   }
 
-  const bodyClasses = new Set();
+  const bodyClasses =
+    new Set();
+
   const inlineStyles = [];
   const fragments = [];
 
-  for (const entry of captures) {
-    const capturePath = path.join(
-      CAPTURE_ROOT,
-      entry.savedAs
-    );
+  for (
+    const entry of captures
+  ) {
+    const capturePath =
+      path.join(
+        CAPTURE_ROOT,
+        entry.savedAs
+      );
 
-    const xhtml = await fs.readFile(
-      capturePath,
-      "utf8"
-    );
+    const xhtml =
+      await fs.readFile(
+        capturePath,
+        "utf8"
+      );
 
-    if (renderMode === "plain") {
-      const text = plainTextFromHtml(xhtml);
+    const fragmentMode =
+      modeForCapture(entry);
+
+    if (
+      fragmentMode === "plain"
+    ) {
+      const text =
+        plainTextFromHtml(
+          xhtml
+        );
 
       fragments.push(
-        `<!-- ${chapterLabel} ${captureLabel(entry)} -->\n` +
-        `<section class="recovery-fragment">\n` +
+        `<!-- ${chapterLabel} ${captureLabel(entry)} : plain fallback -->\n` +
+        `<section class="recovery-plain-fragment" data-recovery-source="${escapeHtml(entry.savedAs)}">\n` +
         `${plainTextToHtml(text)}\n` +
         `</section>`
       );
@@ -520,14 +1084,27 @@ try {
       continue;
     }
 
-    const body = extractBody(xhtml);
+    const body =
+      extractBody(xhtml);
 
-    if (renderMode === "normal") {
-      for (const className of body.classes) {
-        bodyClasses.add(className);
+    if (
+      fragmentMode === "normal"
+    ) {
+      for (
+        const className of
+        body.classes
+      ) {
+        bodyClasses.add(
+          className
+        );
       }
 
-      for (const css of extractInlineStyles(xhtml)) {
+      for (
+        const css of
+        extractInlineStyles(
+          xhtml
+        )
+      ) {
         inlineStyles.push(
           rewriteCssUrls(
             css,
@@ -538,22 +1115,45 @@ try {
       }
     }
 
-    const cleaned = removeActiveContent(body.inner);
-    const rewritten = rewriteHtmlAssets(
-      cleaned,
-      entry.baseHref,
-      localUrlFor,
-      renderMode
-    );
+    const cleaned =
+      removeActiveContent(
+        body.inner
+      );
 
-    fragments.push(
-      `<!-- ${chapterLabel} ${captureLabel(entry)} -->\n${rewritten}`
-    );
+    const rewritten =
+      rewriteHtmlAssets(
+        cleaned,
+        entry.baseHref,
+        localUrlFor,
+        fragmentMode
+      );
+
+    if (
+      fragmentMode === "safe"
+    ) {
+      fragments.push(
+        `<!-- ${chapterLabel} ${captureLabel(entry)} : safe fallback -->\n` +
+        `<section class="recovery-safe-fragment" data-recovery-source="${escapeHtml(entry.savedAs)}">\n` +
+        `${rewritten}\n` +
+        `</section>`
+      );
+    } else {
+      fragments.push(
+        `<!-- ${chapterLabel} ${captureLabel(entry)} -->\n` +
+        rewritten
+      );
+    }
   }
 
-  const title =
-    captures.find((entry) => entry.title)?.title ||
+  const baseTitle =
+    captures.find(
+      (entry) =>
+        entry.title
+    )?.title ||
     `Chapter ${chapterNumber}`;
+
+  const title =
+    `${baseTitle}${variantInfo.titleSuffix}`;
 
   const reconstructionCss = `
 html, body {
@@ -575,45 +1175,115 @@ img, svg, video, canvas {
 }
 `;
 
-  const modeCss =
-    renderMode === "normal"
-      ? ""
-      : renderMode === "safe"
-        ? safeCss
-        : plainCss;
+  let modeCss = "";
 
-  const output = `<!doctype html>
+  if (renderMode === "safe") {
+    modeCss = safeCss;
+  } else if (
+    renderMode === "plain"
+  ) {
+    modeCss = plainCss;
+  } else if (
+    renderMode ===
+    "partial-safe"
+  ) {
+    modeCss =
+      scopedSafeCss;
+  } else if (
+    renderMode ===
+    "partial-plain"
+  ) {
+    modeCss =
+      scopedPlainCss;
+  }
+
+  const output =
+    `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="recovery-render-mode" content="${renderMode}">
+<meta name="recovery-render-mode" content="${escapeHtml(renderMode)}">
 <title>${escapeHtml(title)}</title>
 <style>
 ${publisherCss.join("\n\n")}
-${renderMode === "normal" ? inlineStyles.join("\n\n") : ""}
+${needsNormalStyles ? inlineStyles.join("\n\n") : ""}
 ${reconstructionCss}
 ${modeCss}
+${missingAssetCss}
 </style>
 </head>
-<body class="${renderMode === "normal" ? [...bodyClasses].join(" ") : ""}">
+<body class="${needsNormalStyles ? [...bodyClasses].join(" ") : ""}">
 ${fragments.join("\n\n")}
 </body>
 </html>
 `;
 
-  await fs.mkdir(outputRoot, { recursive: true });
-  await fs.writeFile(htmlPath, output, "utf8");
+  await fs.mkdir(
+    outputRoot,
+    { recursive: true }
+  );
 
-  console.log("\nChapter reconstruction assembled\n");
-  console.log(`Chapter: ${chapterNumber}`);
-  console.log(`Render mode: ${renderMode}`);
-  console.log(`Reader fragments: ${analysis.readerNumbers.length}`);
-  console.log(`Auxiliary fragments: ${analysis.auxiliaryCount}`);
-  console.log(`Total XHTML fragments: ${captures.length}`);
-  console.log(`Cached resources available: ${localMap.size}`);
-  console.log(`Saved: ${htmlPath}\n`);
+  await fs.writeFile(
+    htmlPath,
+    output,
+    "utf8"
+  );
+
+  console.log(
+    "\nChapter reconstruction assembled\n"
+  );
+
+  console.log(
+    `Chapter: ${chapterNumber}`
+  );
+
+  console.log(
+    `Render mode: ${renderMode}`
+  );
+
+  if (
+    renderMode.startsWith(
+      "partial-"
+    )
+  ) {
+    console.log(
+      "Partial fallback fragments:"
+    );
+
+    for (
+      const file of
+      partialFallbackFiles
+    ) {
+      console.log(
+        `  - ${file}`
+      );
+    }
+  }
+
+  console.log(
+    `Reader fragments: ${analysis.readerNumbers.length}`
+  );
+
+  console.log(
+    `Auxiliary fragments: ${analysis.auxiliaryCount}`
+  );
+
+  console.log(
+    `Total XHTML fragments: ${captures.length}`
+  );
+
+  console.log(
+    `Cached resources available: ${localMap.size}`
+  );
+
+  console.log(
+    `Saved: ${htmlPath}\n`
+  );
 } catch (error) {
-  console.error(`\nASSEMBLY FAILED\n${error.message}\n`);
+  console.error(
+    `\nASSEMBLY FAILED\n${error.message}\n`
+  );
+
   process.exitCode = 1;
 }

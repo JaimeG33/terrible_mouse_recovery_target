@@ -4,7 +4,7 @@
 
 ### Steps 1-4
 
-Reader inspection/capture, TOC/structure analysis, asset recovery, continuous HTML, and PDF proof.
+Reader capture, TOC/structure analysis, asset recovery, continuous HTML, and PDF proof.
 
 ### Step 5 / 5.1
 
@@ -16,29 +16,29 @@ One-pass recording, build pipeline, fallback modes, reset/retry, multi-book stor
 
 ### Step 5.2.2
 
-Removed ambiguous Windows `npm.ps1` chaining from record/build orchestration.
+Windows npm orchestration fix.
 
 ### Step 5.2.3
 
-Fixed the short-lived book-manager CDP lifecycle and restored a documented legacy two-pass fallback.
+Short-lived book-manager CDP lifecycle fix and legacy two-pass fallback.
 
 ### Step 5.2.4
 
-Fixed PowerShell build-stage result handling. Npm stdout is no longer accidentally captured together with the integer exit code, so successful stages no longer appear to fail and their diagnostics remain visible.
+PowerShell build-stage output/exit-code handling fix.
+
+### Step 5.2.5
+
+Improved one-pass asset reliability by temporarily disabling Chrome cache during recording, immediately reading resource bodies, and permitting retries after body-read failures.
+
+Added fragment-level partial Safe/Bare Bones recovery and descriptive alternative output filenames.
 
 ## Current operational stage
 
-Validate Chapter 3 with:
-
-```text
-record -> status -> build
-```
-
-Keep the legacy two-pass workflow as a diagnostic fallback.
+Continue validating the one-pass `record -> status -> build` workflow on additional chapters.
 
 ## Next
 
-Batch local processing of already-recorded chapters.
+Batch processing of already-recorded chapters.
 
 ## Final
 

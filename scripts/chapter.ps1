@@ -19,14 +19,28 @@ param(
     )]
     [string]$Action,
 
-    [ValidateSet("auto", "normal", "safe", "plain")]
+    [ValidateSet(
+        "auto",
+        "normal",
+        "safe",
+        "plain",
+        "partial-safe",
+        "partial-plain"
+    )]
     [string]$Mode = "auto"
 )
 
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$previousChapter = $env:MHE_CHAPTER
+$ProjectRoot =
+    Split-Path -Parent $PSScriptRoot
+
+$previousChapter =
+    $env:MHE_CHAPTER
+
+$previousMode =
+    $env:MHE_RENDER_MODE
+
 $script:LastNpmExitCode = 0
 
 function Invoke-NpmCmd {
@@ -35,15 +49,25 @@ function Invoke-NpmCmd {
         [string[]]$Arguments
     )
 
-    # Run as a statement, not as a function whose combined stdout/return value
-    # is assigned by the caller. See STEP5_2_4_BUILD_PIPELINE_FIX.md.
     & npm.cmd @Arguments
-    $script:LastNpmExitCode = [int]$LASTEXITCODE
+
+    $script:LastNpmExitCode =
+        [int]$LASTEXITCODE
 }
 
 Push-Location $ProjectRoot
+
 try {
-    $env:MHE_CHAPTER = [string]$Chapter
+    $env:MHE_CHAPTER =
+        [string]$Chapter
+
+    if ($Mode -ne "auto") {
+        $env:MHE_RENDER_MODE =
+            $Mode
+    } else {
+        $env:MHE_RENDER_MODE =
+            "normal"
+    }
 
     Write-Host ""
     Write-Host "Chapter scope: $Chapter"
@@ -54,7 +78,10 @@ try {
         "record" {
             Write-Host "Selecting the McGraw Hill book currently open in the dedicated Chrome window..."
 
-            & node "src/book-manager.mjs" "use-current"
+            & node `
+                "src/book-manager.mjs" `
+                "use-current"
+
             if ($LASTEXITCODE -ne 0) {
                 throw "Could not select the current book."
             }
@@ -67,73 +94,167 @@ try {
             & node "src/record.mjs"
 
             if ($LASTEXITCODE -ne 0) {
-                throw "One-pass chapter recording failed with exit code $LASTEXITCODE."
+                throw (
+                    "One-pass chapter recording failed with exit code " +
+                    "$LASTEXITCODE."
+                )
             }
         }
 
         "build" {
-            & (Join-Path $PSScriptRoot "build-chapter.ps1") `
+            & (
+                Join-Path `
+                    $PSScriptRoot `
+                    "build-chapter.ps1"
+            ) `
                 -Chapter $Chapter `
                 -Mode $Mode
         }
 
         "reset" {
-            & (Join-Path $PSScriptRoot "reset-chapter.ps1") `
+            & (
+                Join-Path `
+                    $PSScriptRoot `
+                    "reset-chapter.ps1"
+            ) `
                 -Chapter $Chapter
         }
 
         "capture" {
             Write-Host "Low-level XHTML-only capture. Prefer Action record for normal use."
-            Invoke-NpmCmd -Arguments @("run", "capture")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "capture"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "inventory" {
-            Invoke-NpmCmd -Arguments @("run", "assets:inventory")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "assets:inventory"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "assets" {
             Write-Host "Low-level asset-only watcher. Prefer Action record for normal use."
-            Invoke-NpmCmd -Arguments @("run", "assets:capture")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "assets:capture"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "validate" {
-            Invoke-NpmCmd -Arguments @("run", "chapter:validate")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "chapter:validate"
+                )
 
-            Invoke-NpmCmd -Arguments @("run", "assets:validate")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
+
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "assets:validate"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "assemble" {
-            Invoke-NpmCmd -Arguments @("run", "assemble")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "assemble"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "pdf" {
-            Invoke-NpmCmd -Arguments @("run", "pdf")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "pdf"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "proof" {
-            Invoke-NpmCmd -Arguments @("run", "proof")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "proof"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
 
         "status" {
-            Invoke-NpmCmd -Arguments @("run", "status")
-            $code = [int]$script:LastNpmExitCode
-            if ($code -ne 0) { exit $code }
+            Invoke-NpmCmd `
+                -Arguments @(
+                    "run",
+                    "status"
+                )
+
+            $code =
+                [int]$script:LastNpmExitCode
+
+            if ($code -ne 0) {
+                exit $code
+            }
         }
     }
 }
@@ -141,8 +262,20 @@ finally {
     Pop-Location
 
     if ($null -eq $previousChapter) {
-        Remove-Item Env:MHE_CHAPTER -ErrorAction SilentlyContinue
+        Remove-Item `
+            Env:MHE_CHAPTER `
+            -ErrorAction SilentlyContinue
     } else {
-        $env:MHE_CHAPTER = $previousChapter
+        $env:MHE_CHAPTER =
+            $previousChapter
+    }
+
+    if ($null -eq $previousMode) {
+        Remove-Item `
+            Env:MHE_RENDER_MODE `
+            -ErrorAction SilentlyContinue
+    } else {
+        $env:MHE_RENDER_MODE =
+            $previousMode
     }
 }

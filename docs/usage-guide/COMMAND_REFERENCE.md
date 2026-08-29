@@ -1,118 +1,80 @@
 # Command Reference
 
-## Recommended workflow
+## Normal workflow
 
 ```powershell
 npm run chrome:start
-
 .\scripts\chapter.ps1 -Chapter 3 -Action record
-
 npm run status
-
 .\scripts\chapter.ps1 -Chapter 3 -Action build
 ```
 
-A successful `record` start must reach:
+## Build modes
 
-```text
-ONE-PASS CHAPTER RECORDING READY
-```
-
-## Normal chapter actions
-
-```text
-record
-build
-reset
-capture
-inventory
-assets
-validate
-assemble
-pdf
-proof
-status
-```
-
-`record`, `build`, and `reset` are the preferred user-facing actions.
-
-The other action names are retained for low-level/legacy diagnosis.
-
-## Legacy wrapper
+Automatic:
 
 ```powershell
-.\scripts\legacy-chapter.ps1 -Chapter N -Action <action>
+.\scripts\chapter.ps1 -Chapter 3 -Action build
 ```
 
-Supported:
-
-```text
-select
-capture
-inventory
-assets
-validate
-assemble
-pdf
-proof
-status
-```
-
-See `LEGACY_RECORDING.md`.
-
-## Book commands
-
-```powershell
-npm run books
-npm run book:use-current
-npm run runtime:doctor
-npm run runtime:migrate
-```
-
-`book:use-current` connects to the current reader only long enough to identify/select the book. Version 0.6.3 explicitly terminates that Node CDP client after all registry writes finish, without closing the dedicated Chrome process.
-
-## Reader / structure
-
-```powershell
-npm run inspect
-npm run toc
-npm run structure
-npm run status
-```
-
-## Asset commands
-
-```powershell
-npm run assets:inventory
-npm run assets:capture
-npm run assets:promote
-npm run assets:validate
-npm run assets:validate:raw
-npm run assets:download
-```
-
-`assets:capture` now uses the active per-book `ASSET_ROOT`.
-
-## Reconstruction
-
-```powershell
-npm run assemble
-npm run pdf
-npm run proof
-```
-
-## Render modes
+Normal:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build -Mode normal
+```
+
+Safe:
+
+```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build -Mode safe
+```
+
+Bare Bones:
+
+```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build -Mode plain
 ```
 
-Known missing XHTML/text remains blocking.
-
-## Security
+Partial Safe:
 
 ```powershell
+.\scripts\chapter.ps1 -Chapter 3 -Action build -Mode partial-safe
+```
+
+Partial Bare Bones:
+
+```powershell
+.\scripts\chapter.ps1 -Chapter 3 -Action build -Mode partial-plain
+```
+
+Partial modes use affected XHTML fragments reported by the latest chapter asset-health report.
+
+## Alternative output filenames
+
+```text
+normal         -> chapter03.pdf
+safe           -> chapter03_safe-formatting.pdf
+plain          -> chapter03_bare-bones.pdf
+partial-safe   -> chapter03_partial-safe.pdf
+partial-plain  -> chapter03_partial-bare-bones.pdf
+```
+
+The matching HTML and build-report filenames use the same suffix convention.
+
+## Legacy two-pass workflow
+
+See:
+
+```text
+docs/usage-guide/LEGACY_RECORDING.md
+```
+
+## Diagnostics
+
+```powershell
+npm run status
+npm run structure
+npm run books
+npm run runtime:doctor
 npm run security:check
 ```
