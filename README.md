@@ -1,143 +1,120 @@
 # terrible_mouse_recovery_target
 
-Step 1 is a local capture harness for the XHTML fragments that the McGraw Hill reader has already rendered in `iframe#clo-iframe`.
+A local accessibility/recovery helper for supported McGraw Hill eBook reader pages.
 
-## Scope of this step
+The tool connects to a **dedicated Chrome profile**, watches the McGraw Hill EPUB content that you manually navigate to, saves the already-rendered XHTML and required assets locally, and can reconstruct those captures into continuous HTML and chapter PDFs.
 
-This version deliberately does **not**:
+It is intentionally a manual-navigation workflow. It does not guess hidden `reader_*.xhtml` URLs, copy authentication tokens/cookies into scripts, or automatically crawl a textbook.
 
-- guess or crawl `reader_*.xhtml` URLs;
-- copy cookies, authorization headers, or account credentials;
-- auto-navigate the textbook;
-- attempt to bypass access controls;
-- build the final PDF yet.
+## What you need
 
-It does:
+- Windows
+- Google Chrome
+- VS Code
+- Node.js 20+ with npm
+- access to the McGraw Hill book through your own account
 
-- connect to a dedicated local Chrome debugging session;
-- find the open McGraw Hill reader page;
-- inspect `iframe#clo-iframe`;
-- capture each unique XHTML fragment as you navigate normally;
-- preserve the iframe `<base href>` and XHTML markup;
-- record a manifest with chapter/reader numbers, page-break markers, hashes, and discovered reader links.
-
-## 1. Start the dedicated Chrome window
-
-From the VS Code PowerShell terminal:
+Install the project dependencies once:
 
 ```powershell
-cd "D:\ZeTechProjects\terrible_mouse_recovery_target"
-.\scripts\start-chrome.ps1
+npm install
 ```
 
-A dedicated Chrome profile opens at the McGraw Hill bookshelf.
+## Typical chapter workflow
 
-Sign in if needed and open the eBook.
+Start the dedicated browser:
 
-The dedicated profile exists because modern Chrome restricts remote debugging against the normal default profile. It is stored under `.chrome-profile/` and is excluded from Git.
+```powershell
+npm run chrome:start
+```
 
-## 2. Verify the reader is visible
+Sign in to McGraw Hill in that Chrome window and open the book.
 
-With the eBook open:
+Verify the reader:
 
 ```powershell
 npm run inspect
 ```
 
-Expected output should include values resembling:
-
-```text
-chapter            1
-readerFragment     1
-baseHref           .../chapter01/reader_1.xhtml
-pageBreakCount     ...
-linkedReaderFragments ...
-```
-
-If this succeeds, the collector can see the already-rendered iframe.
-
-## 3. Run the capture watcher
+For a chapter, the easiest scoped commands are:
 
 ```powershell
-npm run capture
+.\scripts\chapter.ps1 -Chapter 2 -Action capture
 ```
 
-Leave that terminal running.
+Manually move through Chapter 2, then stop with `Ctrl+C`.
 
-Navigate through the McGraw Hill reader manually. When the reader changes to a new XHTML spine fragment, the watcher saves it once.
-
-Example output:
-
-```text
-[captured] chapter=1 reader=1 pages=2, 3, 4, 5 -> chapter01/reader_01.xhtml
-[captured] chapter=1 reader=2 pages=6, 7, 8 -> chapter01/reader_02.xhtml
-```
-
-Stop the watcher with:
-
-```text
-Ctrl+C
-```
-
-## 4. Validate the current capture set
+Prepare and capture its assets:
 
 ```powershell
-npm run validate
+.\scripts\chapter.ps1 -Chapter 2 -Action inventory
+.\scripts\chapter.ps1 -Chapter 2 -Action assets
 ```
 
-This reports which reader fragments have been captured for each chapter and whether there are internal numbering gaps.
+Manually move through the same chapter again while the asset watcher runs, then stop with `Ctrl+C`.
 
-It does **not** yet prove that a chapter is complete. In the next step we will compare captures against the reader's actual TOC/navigation metadata.
+Validate and build:
 
-## Captured data
+```powershell
+.\scripts\chapter.ps1 -Chapter 2 -Action validate
+.\scripts\chapter.ps1 -Chapter 2 -Action assemble
+.\scripts\chapter.ps1 -Chapter 2 -Action pdf
+```
 
-Runtime content is stored under:
+The chapter output is placed under:
 
 ```text
+output/chapter02/
+```
+
+Check overall capture progress at any time with:
+
+```powershell
+npm run status
+npm run structure
+```
+
+When finished, close the dedicated Chrome window normally or use:
+
+```powershell
+npm run chrome:stop
+```
+
+## Important scoping note
+
+Use **one project workspace per book**. Step 5 adds a local book-scope guard so a capture session will refuse to mix a different McGraw Hill book into an existing workspace.
+
+The tool detects chapter numbers from the current McGraw Hill reader and TOC when the book uses the expected `Chapter N` / `chapterNN/reader_N.xhtml` conventions. It is designed to work with more than one title, but it is not guaranteed to support every McGraw Hill product or legacy reader without adaptation.
+
+## Documentation
+
+Start here:
+
+- [`docs/usage-guide/STARTUP.md`](docs/usage-guide/STARTUP.md) - first-time setup
+- [`docs/usage-guide/TYPICAL_USAGE.md`](docs/usage-guide/TYPICAL_USAGE.md) - normal end-to-end workflow
+- [`docs/usage-guide/COMMAND_REFERENCE.md`](docs/usage-guide/COMMAND_REFERENCE.md) - what each command does
+- [`docs/usage-guide/SCOPING_AND_TROUBLESHOOTING.md`](docs/usage-guide/SCOPING_AND_TROUBLESHOOTING.md) - chapter/book scope and common fixes
+- [`docs/development/TECHNICAL_OVERVIEW.md`](docs/development/TECHNICAL_OVERVIEW.md) - architecture and development environment
+- [`docs/development/ROADMAP.md`](docs/development/ROADMAP.md) - remaining development steps
+
+## Privacy / repository safety
+
+The dedicated Chrome profile can contain login/session information. Captured textbook material and generated PDFs also remain local.
+
+The following are intentionally Git-ignored:
+
+```text
+.chrome-profile/
 captures/
+structure/
+assets/
+output/
 ```
 
-and the manifest is:
-
-```text
-captures/manifest.json
-```
-
-Both `captures/` and `.chrome-profile/` are intentionally ignored by Git.
-
-Do not remove those `.gitignore` entries before publishing the project. The GitHub repository should contain the capture tooling, not your login profile or textbook content.
-
-## Environment variables
-
-Default Chrome DevTools port:
-
-```text
-9222
-```
-
-Override it if needed:
+Run this before publishing changes:
 
 ```powershell
-$env:MHE_CDP_URL = "http://127.0.0.1:9333"
-npm run inspect
+npm run security:check
 ```
 
-Default capture poll interval is 1000 ms:
-
-```powershell
-$env:MHE_POLL_MS = "1500"
-npm run capture
-```
-
-## Planned next steps
-
-After Chapter 1 capture is verified:
-
-1. Determine the authoritative spine/TOC order.
-2. Confirm the final fragment count for every chapter.
-3. Capture assets needed for an offline render without harvesting credentials.
-4. Normalize the captured XHTML into a continuous document.
-5. Render a Chapter 1 proof-of-concept PDF.
-6. Validate text, figures, tables, page markers, and reading order.
-7. Scale the verified process to Chapters 1–13.
-8. Assemble the final local PDF with bookmarks and metadata.
+Do not force-add ignored runtime folders to Git.

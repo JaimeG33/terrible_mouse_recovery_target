@@ -1,9 +1,31 @@
 node_modules/
+
+# Dedicated Chrome profile. This can contain login/session data.
 .chrome-profile/
+
+# Runtime captures and generated book material.
 captures/
 structure/
 assets/
 output/
+
+# Local configuration / authentication artifacts.
+.env
+.env.*
+!.env.example
+*.har
+cookies*.json
+cookie*.json
+storage-state*.json
+storage_state*.json
+auth-state*.json
+auth_state*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Logs / OS files.
 *.log
 .DS_Store
 Thumbs.db

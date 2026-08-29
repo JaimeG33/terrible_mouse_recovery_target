@@ -264,5 +264,7 @@ try {
   console.error(`\nBROWSER ASSET CAPTURE FAILED\n${error.message}\n`);
   process.exitCode = 1;
 } finally {
-  await browser?.close().catch(() => {});
+  // This tool attached to an already-running dedicated Chrome instance.
+  // Exit the Node process to drop the CDP connection without intentionally closing Chrome.
+  process.exit(process.exitCode || 0);
 }

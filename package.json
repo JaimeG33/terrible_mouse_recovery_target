@@ -1,15 +1,18 @@
 {
   "name": "terrible-mouse-recovery-target",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "Manual-navigation capture and local reconstruction harness for the McGraw Hill reader.",
+  "description": "Manual-navigation capture and local reconstruction helper for supported McGraw Hill EPUB reader books.",
   "scripts": {
+    "chrome:start": "powershell -ExecutionPolicy Bypass -File scripts/start-chrome.ps1",
+    "chrome:stop": "node src/stop-chrome.mjs",
     "inspect": "node src/inspect.mjs",
     "capture": "node src/capture.mjs",
     "validate": "node src/validate.mjs",
     "toc": "node src/toc.mjs",
     "structure": "node src/structure.mjs",
+    "status": "node src/status.mjs",
     "assets:inventory": "node src/assets.mjs inventory",
     "assets:download": "node src/assets.mjs download",
     "assets:capture": "node src/assets-capture.mjs",
@@ -17,7 +20,8 @@
     "assets:validate:raw": "node src/assets.mjs validate",
     "assemble": "node src/assemble.mjs",
     "pdf": "node src/render-pdf.mjs",
-    "proof": "npm run assets:validate && npm run assemble && npm run pdf"
+    "proof": "npm run assets:validate && npm run assemble && npm run pdf",
+    "security:check": "node src/security-check.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.55.0"
