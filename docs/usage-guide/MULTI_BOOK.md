@@ -1,18 +1,14 @@
 # Multiple Books
 
-Version 0.6 stores runtime data per book.
+Version 0.6+ stores runtime data separately for each locally registered McGraw Hill book.
 
 ## Registry
-
-List local books:
 
 ```powershell
 npm run books
 ```
 
-The registry is local and Git-ignored.
-
-Files:
+Layout:
 
 ```text
 books/
@@ -29,45 +25,43 @@ books/
 
 ## Selecting a book
 
-Normal users do not need to select a book manually.
+Normal users usually do not select one manually.
 
-When you run:
+`Action record` first selects/registers the McGraw Hill book currently open in dedicated Chrome, then starts the one-pass recorder.
 
-```powershell
-.\scripts\chapter.ps1 -Chapter 1 -Action record
-```
-
-the tool examines the McGraw Hill book currently open in the dedicated Chrome reader and selects/registers it before recording.
-
-Manual command:
+Manual selection:
 
 ```powershell
 npm run book:use-current
 ```
 
-## Two books can both have Chapter 1
+## Same chapter numbers across books
 
-They are isolated:
-
-```text
-books/sn_book_a/captures/chapter01/
-books/sn_book_b/captures/chapter01/
-```
-
-so they cannot overwrite each other.
-
-## Existing pre-0.6 data
-
-The Step 5.2 installer migrates the old root-level:
+Safe:
 
 ```text
-captures/
-assets/
-structure/
-staging/
-output/
+books/book_a/captures/chapter01/
+books/book_b/captures/chapter01/
 ```
 
-into the local multi-book store when possible.
+## Runtime health
 
-The migration does not upload book data anywhere.
+```powershell
+npm run runtime:doctor
+```
+
+## Migration
+
+```powershell
+npm run runtime:migrate
+```
+
+Version 0.6.1+ can repair partially completed migration.
+
+## Friendly title limitation
+
+The registry title is currently derived from observed reader/browser document metadata.
+
+McGraw Hill can expose a section-level title such as `Introduction`, so the friendly title may not equal the full textbook title.
+
+Stable identity uses the local `bookId` and EPUB `bookRoot`.

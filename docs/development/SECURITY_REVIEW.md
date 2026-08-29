@@ -1,47 +1,52 @@
 # Repository Security Review
 
-Review target: current `main` branch during Step 5 preparation.
+Review target: source architecture through version 0.6.2.
 
-## Current result
+## Current protections
 
-No dedicated Chrome profile, textbook captures, cached assets, structure output, or generated chapter PDFs were present as tracked files in the reviewed branch.
-
-The existing `.gitignore` already excluded the main runtime locations:
+`.gitignore` excludes:
 
 ```text
 .chrome-profile/
+books/
+backups/
+
+# legacy runtime
 captures/
 structure/
 assets/
+staging/
 output/
 ```
 
-The Step 5 patch expands protection for common `.env`, HAR, cookie/storage-state export, and private-key file patterns.
+and common local auth/debug artifacts:
 
-A repository code search did not reveal an obvious hard-coded API key/password/token credential.
-
-## Important limitation
-
-This review is of the currently accessible repository state and common secret patterns. It is not a forensic audit of every historical Git object or every possible secret format.
-
-Always review:
-
-```powershell
-git status
-git diff
-npm run security:check
+```text
+.env*
+*.har
+cookie/storage/auth-state exports
+*.pem
+*.key
+*.p12
+*.pfx
 ```
-
-before pushing.
 
 ## Sensitive local data
 
-The most sensitive local directory is:
+`.chrome-profile/` can contain signed-in browser session state.
 
-```text
-.chrome-profile/
+`books/` can contain captured textbook XHTML, staged/cached assets, output, runtime metadata, and backups.
+
+Neither should be force-added to Git.
+
+## Security command
+
+```powershell
+npm run security:check
+git status
+git diff
 ```
 
-It can contain McGraw Hill login/session state. Never force-add it to Git.
+## Limitations
 
-The capture and output directories can contain copyrighted book material and are also intentionally local-only.
+The built-in security check is path-based. It is not a forensic Git-history audit or complete arbitrary-secret scanner.

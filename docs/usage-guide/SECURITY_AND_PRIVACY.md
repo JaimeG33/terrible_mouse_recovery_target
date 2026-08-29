@@ -2,65 +2,72 @@
 
 ## Dedicated Chrome profile
 
-The special Chrome window is launched with:
-
-- a project-local `--user-data-dir=.chrome-profile`;
-- Chrome DevTools Protocol on a local loopback address;
-- a separate profile from normal Chrome.
-
-That profile can contain browser cookies, local/session storage, site preferences, history, and other browser-profile data. If you choose to save credentials in that Chrome profile, it can also contain Chrome-managed credential information.
-
-Treat `.chrome-profile/` as sensitive local data.
-
-It is Git-ignored.
-
-## Does the application copy login credentials?
-
-The capture code does not call Chrome APIs to export cookies or authentication headers.
-
-The browser-response asset workflow listens to resource responses that the signed-in browser naturally receives while you navigate.
-
-## Remote debugging risk
-
-While the dedicated debugging browser is running, local software that can access its CDP endpoint may be able to control that browser profile.
-
-The startup script binds the intended debugging address to:
-
-```text
-127.0.0.1
-```
-
-Do not expose the debugging port to another machine or run untrusted local programs while using the dedicated signed-in profile.
-
-## Files that should never be committed
-
-Keep these local:
+The dedicated browser uses:
 
 ```text
 .chrome-profile/
+```
+
+and local CDP access intended for:
+
+```text
+127.0.0.1:9222
+```
+
+The profile can contain cookies, storage, history, preferences, and Chrome-managed credentials if the user explicitly saves them.
+
+Treat it as sensitive.
+
+## Credential behavior
+
+The application does not export McGraw Hill cookies/auth headers into scripts.
+
+The one-pass recorder observes rendered XHTML and eligible asset responses Chrome naturally receives during manual navigation.
+
+## Per-book runtime
+
+Version 0.6+ stores local runtime under:
+
+```text
+books/
+```
+
+including captures, staging, assets, structure, output, and backups.
+
+`books/` is Git-ignored.
+
+## Do not commit
+
+```text
+.chrome-profile/
+books/
+backups/
+
+# legacy runtime if present
 captures/
-structure/
 assets/
+staging/
+structure/
 output/
+
 .env*
 *.har
 cookie/auth/storage-state exports
 private keys/certificates
 ```
 
-The repository's `.gitignore` covers these common cases.
-
-Before sharing changes:
+## Before sharing source changes
 
 ```powershell
 npm run security:check
 git status
+git diff
 ```
 
-The security check is deliberately conservative and path-based. It is not a replacement for reviewing a diff before publishing it.
+The security checker is path-based, not a complete secret scanner.
 
-## Textbook content
+## Captured/generated book content
 
-`captures/`, `assets/`, and `output/` can contain substantial book content. They are excluded from the source repository.
+Captured XHTML, assets, output, and backups may contain substantial book content.
 
-Share generated content only in ways permitted by your access rights and applicable rules.
+Share them only as permitted by your access rights and applicable rules.

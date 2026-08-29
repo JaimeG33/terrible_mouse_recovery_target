@@ -13,10 +13,13 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $previousChapter = $env:MHE_CHAPTER
 $previousMode = $env:MHE_RENDER_MODE
 
-function Invoke-Stage {
+function Invoke-NpmStage {
     param(
-        [Parameter(Mandatory=$true)][string]$Name,
-        [Parameter(Mandatory=$true)][scriptblock]$Command
+        [Parameter(Mandatory=$true)]
+        [string]$Name,
+
+        [Parameter(Mandatory=$true)]
+        [string]$ScriptName
     )
 
     Write-Host ""
@@ -25,7 +28,9 @@ function Invoke-Stage {
     Write-Host "============================================================"
     Write-Host ""
 
-    & $Command
+    # Use npm.cmd explicitly. This avoids PowerShell resolving `npm` to
+    # npm.ps1, whose exit behavior can interrupt a larger orchestration script.
+    & npm.cmd run $ScriptName
     return $LASTEXITCODE
 }
 
@@ -63,9 +68,9 @@ try {
     Write-Host "Requested mode: $Mode"
     Write-Host ""
 
-    $exitCode = Invoke-Stage "1/6 - Chapter content validation" {
-        npm run chapter:validate
-    }
+    $exitCode = Invoke-NpmStage `
+        -Name "1/6 - Chapter content validation" `
+        -ScriptName "chapter:validate"
 
     if ($exitCode -ne 0) {
         Write-Host ""
@@ -79,9 +84,9 @@ try {
         exit $exitCode
     }
 
-    $exitCode = Invoke-Stage "2/6 - Build asset inventory" {
-        npm run assets:inventory
-    }
+    $exitCode = Invoke-NpmStage `
+        -Name "2/6 - Build asset inventory" `
+        -ScriptName "assets:inventory"
 
     if ($exitCode -ne 0) {
         Write-Host ""
@@ -90,9 +95,9 @@ try {
         exit $exitCode
     }
 
-    $exitCode = Invoke-Stage "3/6 - Match one-pass staged assets" {
-        npm run assets:promote
-    }
+    $exitCode = Invoke-NpmStage `
+        -Name "3/6 - Match one-pass staged assets" `
+        -ScriptName "assets:promote"
 
     if ($exitCode -ne 0) {
         Write-Host ""
@@ -101,9 +106,9 @@ try {
         exit $exitCode
     }
 
-    $assetExit = Invoke-Stage "4/6 - Asset validation" {
-        npm run assets:validate
-    }
+    $assetExit = Invoke-NpmStage `
+        -Name "4/6 - Asset validation" `
+        -ScriptName "assets:validate"
 
     if ($assetExit -ne 0 -and $selectedMode -eq "normal") {
         if ($Mode -eq "auto") {
@@ -115,7 +120,7 @@ try {
                 Write-Host "BUILD STOPPED"
                 Write-Host "Stage: Asset validation"
                 Write-Host ""
-                Write-Host "Re-record the chapter once. The one-pass recorder will keep existing good captures and stage anything newly observed."
+                Write-Host "Re-record the chapter once. The one-pass recorder keeps existing good captures and stages anything newly observed."
                 exit $assetExit
             }
 
@@ -130,11 +135,15 @@ try {
 
     $env:MHE_RENDER_MODE = $selectedMode
 
-    $assembleExit = Invoke-Stage "5/6 - Assemble continuous chapter ($selectedMode mode)" {
-        npm run assemble
-    }
+    $assembleExit = Invoke-NpmStage `
+        -Name "5/6 - Assemble continuous chapter ($selectedMode mode)" `
+        -ScriptName "assemble"
 
-    if ($assembleExit -ne 0 -and $Mode -eq "auto" -and $selectedMode -eq "normal") {
+    if (
+        $assembleExit -ne 0 -and
+        $Mode -eq "auto" -and
+        $selectedMode -eq "normal"
+    ) {
         $fallback = Ask-Fallback `
             "Normal publisher formatting could not be assembled, but chapter content validation passed."
 
@@ -148,9 +157,9 @@ try {
         $selectedMode = $fallback
         $env:MHE_RENDER_MODE = $selectedMode
 
-        $assembleExit = Invoke-Stage "5/6 - Retry assembly ($selectedMode mode)" {
-            npm run assemble
-        }
+        $assembleExit = Invoke-NpmStage `
+            -Name "5/6 - Retry assembly ($selectedMode mode)" `
+            -ScriptName "assemble"
     }
 
     if ($assembleExit -ne 0) {
@@ -161,9 +170,9 @@ try {
         exit $assembleExit
     }
 
-    $pdfExit = Invoke-Stage "6/6 - Render PDF" {
-        npm run pdf
-    }
+    $pdfExit = Invoke-NpmStage `
+        -Name "6/6 - Render PDF" `
+        -ScriptName "pdf"
 
     if ($pdfExit -ne 0) {
         Write-Host ""
@@ -189,7 +198,9 @@ try {
         pdf = (Join-Path $outputRoot "$chapterLabel.pdf")
     }
 
-    $report | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $reportPath
+    $report |
+        ConvertTo-Json -Depth 5 |
+        Set-Content -Encoding UTF8 $reportPath
 
     Write-Host ""
     Write-Host "============================================================"

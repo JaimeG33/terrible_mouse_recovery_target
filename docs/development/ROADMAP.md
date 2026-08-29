@@ -2,90 +2,81 @@
 
 ## Completed
 
-### Step 1 - Reader inspection / XHTML capture
+### Steps 1-4
 
-Implemented the dedicated Chrome + CDP connection and manual-navigation XHTML capture.
+Implemented:
 
-### Step 2 - TOC / structure discovery
+- dedicated Chrome/CDP inspection and capture;
+- TOC/structure analysis;
+- asset inventory/browser-response recovery;
+- continuous HTML and PDF proof.
 
-Added TOC extraction and chapter/spine analysis.
-
-### Step 3 - Asset inventory / recovery
-
-Added asset inventory and browser-response capture after standalone CDN requests returned HTTP 403.
-
-### Step 4 - Reconstruction proof
+### Step 5 / 5.1
 
 Added:
 
-- direct-vs-supplemental asset validation;
-- continuous local chapter HTML assembly;
-- Chrome PDF rendering.
+- chapter scope;
+- auxiliary XHTML preservation;
+- event-driven capture + polling fallback;
+- non-contiguous reader-ID handling;
+- status/diagnostic improvements;
+- Chrome lifecycle/security/docs cleanup.
 
-Chapter 1 produced a usable proof PDF.
+### Step 5.2 / 5.2.1
 
-Minor font differences are accepted when they do not materially harm usability.
+Added:
 
-## Step 5 - Full manual capture + quality of life
+- one-pass XHTML + asset staging;
+- six-stage build pipeline;
+- Safe/Plain fallback;
+- reset/retry + backups;
+- multi-book runtime;
+- current-book selection;
+- targeted chapter health;
+- staged asset promotion;
+- runtime migration/doctor;
+- partial-migration repair.
 
-Current stage.
+### Step 5.2.2
 
-Step 5 adds:
+Fixed Windows PowerShell orchestration where the `record` wrapper could stop immediately after `book:use-current` and never launch `record`.
 
-- optional chapter-scoped recording;
-- book-root scope locking to prevent accidental cross-book mixing;
-- `npm run status`;
-- `scripts/chapter.ps1`;
-- explicit `chrome:start` / `chrome:stop` commands;
-- Chrome loopback debugging / background-mode cleanup;
-- stronger Git ignore rules and a repository security preflight;
-- reorganized user/developer documentation.
+The wrapper now uses direct Node processes for the two recording startup stages and `npm.cmd` for multi-stage npm orchestration.
 
-The remaining Step 5 work is operational: manually record the remaining desired chapters.
+## Current operational stage
 
-## Step 6 - Remaining chapter assets
+Record/build remaining chapters with:
 
-For each fully recorded chapter:
+```text
+record -> status -> build
+```
 
-1. build the local asset inventory;
-2. run the browser-response asset watcher during a manual chapter pass;
-3. validate that direct XHTML resources are present.
+The normal workflow requires one manual chapter traversal.
 
-Do not spend time reproducing every generic publisher font unless a missing font causes a meaningful usability problem.
-
-## Step 7 - Batch chapter generation
-
-Planned improvements:
-
-- process all completed local chapter captures in one command;
-- produce all chapter HTML/PDF files;
-- report build failures/gaps per chapter;
-- avoid requiring a manual `MHE_CHAPTER` build command for every completed chapter.
-
-This stage operates only on local captures/assets.
-
-## Step 8 - Master document / final QA
+## Next - Batch local chapter processing
 
 Planned:
 
-- combine completed chapter PDFs in correct order;
-- create a master PDF;
-- preserve useful metadata/bookmarks where practical;
-- run automated sanity checks;
-- visually spot-check chapter boundaries, figures, tables, and reading order.
+- build multiple already-recorded chapters locally;
+- per-chapter success/failure reports;
+- no automatic online navigation to fill missing captures.
 
-The project must also decide whether the desired "complete book" includes top-level material outside numbered chapters, such as front matter, index, and accessibility-content sections.
+## Final - Master document / QA
 
-## Compatibility work after the main project
+Planned:
 
-The current adapter targets the McGraw Hill reader conventions observed during development.
+- combine completed chapter PDFs;
+- optional front matter/index/accessibility sections;
+- bookmarks/metadata where practical;
+- sanity checks and visual QA.
 
-Possible future work:
+## Future compatibility
 
-- alternate TOC label conventions;
-- non-`chapterNN/reader_N.xhtml` path conventions;
+Potential later work:
+
+- better friendly book titles;
+- alternate TOC conventions;
+- different reader resource naming;
 - changed iframe/DOM selectors;
-- book-specific adapters;
-- better automatic compatibility diagnostics.
-
-These are not required before finishing the current book.
+- compatibility adapters;
+- highly interactive/script-dependent content handling.

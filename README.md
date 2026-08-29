@@ -2,7 +2,7 @@
 
 A local accessibility/recovery helper for supported McGraw Hill eBook reader books.
 
-The tool uses a dedicated Chrome profile and records **only the textbook content you manually navigate to**. It saves rendered XHTML and matching browser-loaded assets locally, then reconstructs the chapter into continuous HTML and PDF.
+The tool uses a dedicated Chrome profile and records **only content you manually navigate to**. During one chapter pass it saves rendered XHTML and passively stages matching book assets that Chrome naturally loads. It can then validate, assemble, and render that chapter to continuous HTML and PDF.
 
 It does not automatically crawl hidden textbook URLs or export account cookies/tokens into scripts.
 
@@ -22,13 +22,25 @@ npm run chrome:start
 
 Sign into McGraw Hill and open the book.
 
-Record a chapter **once**:
+Record a chapter once:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action record
 ```
 
-After the terminal says `ONE-PASS CHAPTER RECORDING READY`, manually move through the chapter. Press `Ctrl+C` when you reach the next chapter.
+The command should print:
+
+```text
+Active book selected
+...
+Launching one-pass chapter recorder...
+...
+ONE-PASS CHAPTER RECORDING READY
+```
+
+Do **not** start navigating until `ONE-PASS CHAPTER RECORDING READY` appears.
+
+Then manually traverse the chapter. Press `Ctrl+C` when you reach the next chapter.
 
 Build the chapter:
 
@@ -36,22 +48,25 @@ Build the chapter:
 .\scripts\chapter.ps1 -Chapter 3 -Action build
 ```
 
-The build command runs capture validation, asset inventory, staged-asset matching, asset validation, HTML assembly, and PDF rendering in order.
+The build pipeline runs:
 
-If normal publisher formatting fails but text is intact, the build can offer:
+```text
+chapter validation
+-> asset inventory
+-> one-pass staged asset matching
+-> asset validation
+-> HTML assembly
+-> PDF rendering
+```
 
-- **Safe** formatting: semantic content + simple built-in CSS.
-- **Plain** formatting: text-first fallback with minimal styling.
+If normal publisher formatting fails while captured text is intact, the build can offer:
+
+- **Safe** mode: semantic HTML and available images with simple built-in CSS.
+- **Plain** mode: text-first reconstruction with minimal formatting.
 
 Known missing XHTML/text remains a hard stop.
 
 ## Multiple books
-
-The tool keeps a local book registry:
-
-```powershell
-npm run books
-```
 
 Runtime data is isolated under:
 
@@ -59,19 +74,27 @@ Runtime data is isolated under:
 books/<bookId>/
 ```
 
-so Chapter 1 of Book A cannot collide with Chapter 1 of Book B.
+List registered local books:
 
-When `Action record` starts, the book currently open in the dedicated Chrome reader is selected/registered automatically.
+```powershell
+npm run books
+```
+
+`Action record` automatically selects/registers the McGraw Hill book currently open in the dedicated Chrome reader.
+
+Check the active runtime:
+
+```powershell
+npm run runtime:doctor
+```
 
 ## Reset / retry
-
-For a chapter that needs to be redone:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action reset
 ```
 
-The menu can rebuild output only, reset assets, reset an entire chapter recording, or remove one `reader_N` fragment. Data is backed up before destructive reset operations.
+The reset menu can clear generated output, chapter assets/staging, the entire chapter recording, or one `reader_N` fragment. Destructive resets create a backup first.
 
 ## Useful diagnostics
 
@@ -79,20 +102,24 @@ The menu can rebuild output only, reset assets, reset an entire chapter recordin
 npm run status
 npm run structure
 npm run books
+npm run runtime:doctor
 npm run security:check
 ```
 
 ## Documentation
 
-See:
-
-```text
-docs/usage-guide/
-docs/development/
-```
-
 Start with:
 
+- `docs/usage-guide/STARTUP.md`
 - `docs/usage-guide/TYPICAL_USAGE.md`
+- `docs/usage-guide/COMMAND_REFERENCE.md`
 - `docs/usage-guide/RECOVERY_AND_FALLBACKS.md`
 - `docs/usage-guide/MULTI_BOOK.md`
+- `docs/usage-guide/RUNTIME_AND_DATA_LAYOUT.md`
+- `docs/usage-guide/COMPATIBILITY.md`
+
+Developer notes are under:
+
+```text
+docs/development/
+```

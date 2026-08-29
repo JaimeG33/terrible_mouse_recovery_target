@@ -28,6 +28,16 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $previousChapter = $env:MHE_CHAPTER
 
+function Invoke-NpmCmd {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string[]]$Arguments
+    )
+
+    & npm.cmd @Arguments
+    return $LASTEXITCODE
+}
+
 Push-Location $ProjectRoot
 try {
     $env:MHE_CHAPTER = [string]$Chapter
@@ -40,13 +50,30 @@ try {
     switch ($Action) {
         "record" {
             Write-Host "Selecting the McGraw Hill book currently open in the dedicated Chrome window..."
-            npm run book:use-current
+
+            # IMPORTANT:
+            # Invoke Node directly here rather than chaining two `npm run` calls.
+            # On Windows PowerShell, `npm` may resolve to npm.ps1. The npm PowerShell
+            # shim ends with `exit $LASTEXITCODE`; depending on the calling scope,
+            # that can terminate this wrapper after book selection before the
+            # second command (`record`) ever starts.
+            & node "src/book-manager.mjs" "use-current"
             if ($LASTEXITCODE -ne 0) {
                 throw "Could not select the current book."
             }
 
             Write-Host ""
-            npm run record
+            Write-Host "Launching one-pass chapter recorder..."
+            Write-Host "Do not navigate until the terminal prints ONE-PASS CHAPTER RECORDING READY."
+            Write-Host ""
+
+            # Separate Node process is deliberate: config.mjs must load AFTER
+            # book-manager writes books/active.json so ACTIVE_BOOK_ID is current.
+            & node "src/record.mjs"
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "One-pass chapter recording failed with exit code $LASTEXITCODE."
+            }
         }
 
         "build" {
@@ -62,45 +89,48 @@ try {
 
         "capture" {
             Write-Host "Low-level XHTML-only capture. Prefer Action record for normal use."
-            npm run capture
+            $code = Invoke-NpmCmd -Arguments @("run", "capture")
+            if ($code -ne 0) { exit $code }
         }
 
         "inventory" {
-            npm run assets:inventory
+            $code = Invoke-NpmCmd -Arguments @("run", "assets:inventory")
+            if ($code -ne 0) { exit $code }
         }
 
         "assets" {
             Write-Host "Low-level asset-only watcher. Prefer Action record for normal use."
-            npm run assets:capture
+            $code = Invoke-NpmCmd -Arguments @("run", "assets:capture")
+            if ($code -ne 0) { exit $code }
         }
 
         "validate" {
-            npm run chapter:validate
-            if ($LASTEXITCODE -ne 0) {
-                exit $LASTEXITCODE
-            }
-            npm run assets:validate
+            $code = Invoke-NpmCmd -Arguments @("run", "chapter:validate")
+            if ($code -ne 0) { exit $code }
+
+            $code = Invoke-NpmCmd -Arguments @("run", "assets:validate")
+            if ($code -ne 0) { exit $code }
         }
 
         "assemble" {
-            npm run assemble
+            $code = Invoke-NpmCmd -Arguments @("run", "assemble")
+            if ($code -ne 0) { exit $code }
         }
 
         "pdf" {
-            npm run pdf
+            $code = Invoke-NpmCmd -Arguments @("run", "pdf")
+            if ($code -ne 0) { exit $code }
         }
 
         "proof" {
-            npm run proof
+            $code = Invoke-NpmCmd -Arguments @("run", "proof")
+            if ($code -ne 0) { exit $code }
         }
 
         "status" {
-            npm run status
+            $code = Invoke-NpmCmd -Arguments @("run", "status")
+            if ($code -ne 0) { exit $code }
         }
-    }
-
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
     }
 }
 finally {

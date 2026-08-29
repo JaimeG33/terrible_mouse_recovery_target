@@ -6,7 +6,7 @@
 npm run chrome:start
 ```
 
-Sign into McGraw Hill and open the book.
+Sign into McGraw Hill and open the intended book.
 
 ## 2. Record one chapter once
 
@@ -16,32 +16,58 @@ Example:
 .\scripts\chapter.ps1 -Chapter 3 -Action record
 ```
 
-`record` first identifies/selects the book currently open in the reader.
+The wrapper first selects/registers the McGraw Hill book currently open in dedicated Chrome.
 
-Wait for:
+Version 0.6.2 then launches the recorder as a separate Node process rather than chaining two generic `npm` calls from PowerShell. This avoids the Windows `npm.ps1` shim prematurely ending the wrapper after book selection.
+
+Expected startup sequence:
 
 ```text
+Active book selected
+...
+Launching one-pass chapter recorder...
+Do not navigate until the terminal prints ONE-PASS CHAPTER RECORDING READY.
+...
 ONE-PASS CHAPTER RECORDING READY
 ```
 
-Then manually traverse Chapter 3.
+If the command returns to the PowerShell prompt immediately after `Active book selected` and **never** prints `ONE-PASS CHAPTER RECORDING READY`, the recorder did not start. Confirm the project is version 0.6.2 or newer.
 
-The recorder does two jobs simultaneously:
+After `READY`, manually traverse the chapter.
 
-- stores each rendered chapter XHTML fragment;
-- passively stages matching book images/styles/media that Chrome naturally loads.
+The recorder simultaneously:
+
+- stores rendered chapter XHTML;
+- preserves scoped auxiliary XHTML;
+- passively stages eligible book images/styles/fonts/media that Chrome naturally loads.
 
 It does not automatically advance textbook pages.
 
-When you reach Chapter 4, press:
+When you reach the next chapter, press:
 
 ```text
 Ctrl+C
 ```
 
-If you were already sitting inside Chapter 3 when recording started, manually use the TOC to re-enter the beginning after the READY message so the opening asset responses can be observed.
+If you were already inside the target chapter when recording started, use the TOC to re-enter the chapter beginning after `READY` so opening asset responses can be observed.
 
-## 3. Build
+## 3. Check progress
+
+```powershell
+npm run status
+```
+
+The most important capture-health field is:
+
+```text
+knownMissing
+```
+
+If it lists reader fragments, revisit the chapter before building.
+
+`numericGaps` alone are informational.
+
+## 4. Build
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build
@@ -51,40 +77,40 @@ The build runs:
 
 ```text
 chapter validation
-  -> asset inventory
-  -> staged asset matching
-  -> asset validation
-  -> HTML assembly
-  -> PDF render
+-> asset inventory
+-> staged asset matching
+-> asset validation
+-> HTML assembly
+-> PDF render
 ```
 
-If everything passes, the PDF is stored under the active book:
+If everything passes, output is stored under:
 
 ```text
-books/<bookId>/output/chapter03/chapter03.pdf
+books/<bookId>/output/chapter03/
 ```
 
 ## Formatting fallback
 
-If text capture is intact but publisher formatting/assets cause a problem, automatic build mode can offer:
+Automatic build mode can offer:
 
 1. Stop/re-record.
 2. Safe formatting.
 3. Plain text formatting.
 
-You can also request a mode directly:
+Force Safe mode:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build -Mode safe
 ```
 
-or:
+Force Plain mode:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build -Mode plain
 ```
 
-Known missing XHTML/text does not silently fall back. The build stops and tells you to revisit the chapter.
+Known missing XHTML/text remains a hard stop.
 
 ## Reset / retry
 
@@ -92,4 +118,4 @@ Known missing XHTML/text does not silently fall back. The build stops and tells 
 .\scripts\chapter.ps1 -Chapter 3 -Action reset
 ```
 
-The interactive menu safely backs up data before removing derived output, assets, the whole chapter recording, or one reader fragment.
+The interactive menu safely backs up data before removing output, assets/staging, an entire chapter recording, or one reader fragment.

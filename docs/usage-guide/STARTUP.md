@@ -1,106 +1,131 @@
 # Startup Guide
 
-This guide covers a clean setup before recording any book content.
-
 ## Requirements
 
 Install:
 
-1. **Google Chrome**
-2. **VS Code**
-3. **Node.js 20 or newer** (npm is included with Node.js)
-4. **Git** if you are cloning the repository
+1. Google Chrome
+2. VS Code
+3. Node.js 20 or newer
+4. Git if cloning the repository
 
 Recommended VS Code extension:
 
-- **PowerShell** by Microsoft
+- PowerShell by Microsoft
 
-The JavaScript/TypeScript language support used by this project is already built into VS Code. No browser extension is required.
+No browser extension is required.
 
-## Install the project
-
-Open the project folder in VS Code, then open a PowerShell terminal.
-
-Run:
+## Install dependencies
 
 ```powershell
 npm install
 ```
 
-This installs `playwright-core`, which is used to connect to Chrome through the Chrome DevTools Protocol (CDP).
+`playwright-core` is the only project dependency.
 
-## Start the dedicated Chrome profile
-
-Run:
+## Start dedicated Chrome
 
 ```powershell
 npm run chrome:start
 ```
 
-This launches a separate Chrome user-data directory at:
+This uses a separate project-local profile:
 
 ```text
 .chrome-profile/
 ```
 
-The browser opens the McGraw Hill bookshelf by default.
-
-Sign in using your own existing McGraw Hill account and open the book you want to work with.
-
-The profile is intentionally separate from your normal Chrome profile. It may remember your McGraw Hill login because Chrome stores cookies/local site data in that dedicated profile.
+Sign into your existing McGraw Hill account and open the book.
 
 ## Verify the reader
-
-With the eBook open, run:
 
 ```powershell
 npm run inspect
 ```
 
-A successful result should identify a chapter and reader fragment and show a `baseHref` resembling:
+A supported normal reader fragment should resemble:
 
 ```text
 .../OPS/.../chapter01/reader_1.xhtml
 ```
 
-If `inspect` cannot see the reader, see `SCOPING_AND_TROUBLESHOOTING.md`.
+## Book registration / runtime
 
-## Capture the TOC once per book
+Normal `Action record` automatically selects the current book.
 
-For a new book workspace:
+Diagnostics:
+
+```powershell
+npm run book:use-current
+npm run books
+npm run runtime:doctor
+```
+
+Runtime data is isolated per book under:
+
+```text
+books/<bookId>/
+```
+
+## TOC for a new book
+
+After selecting the intended book:
 
 ```powershell
 npm run toc
 npm run structure
 ```
 
-`toc` reads the visible McGraw Hill table-of-contents tree.
+Usually this is needed once per book, not once per chapter.
 
-`structure` compares that TOC with the captures already stored locally.
+## Record/build
 
-You do not need to rerun `toc` before every chapter unless the original TOC capture was incomplete.
-
-## One workspace per book
-
-The project stores runtime material under shared local folders such as:
-
-```text
-captures/
-assets/
-structure/
-output/
+```powershell
+.\scripts\chapter.ps1 -Chapter 1 -Action record
 ```
 
-Step 5 adds a `captures/book-scope.json` guard. Once a workspace is associated with one book root, content capture refuses to save a different book into the same workspace.
+Wait for:
 
-For a second textbook, use another clone/copy of the project or archive the current ignored runtime folders first.
+```text
+ONE-PASS CHAPTER RECORDING READY
+```
 
-## Before publishing code
+before navigating.
 
-Run:
+Then manually traverse the chapter and press `Ctrl+C`.
+
+Build:
+
+```powershell
+.\scripts\chapter.ps1 -Chapter 1 -Action build
+```
+
+Keep dedicated Chrome running through PDF rendering.
+
+## Important Windows PowerShell note
+
+Version 0.6.2 avoids using generic `npm` for multi-step PowerShell orchestration.
+
+Windows can resolve `npm` to `npm.ps1`, and that shim's `exit` behavior can terminate a parent `.ps1` workflow after the first npm command.
+
+The chapter recorder therefore runs its two Node stages directly, while the build orchestrator uses `npm.cmd`.
+
+If `Action record` returns immediately after `Active book selected` without ever printing `ONE-PASS CHAPTER RECORDING READY`, update to 0.6.2 or newer.
+
+## Migration
+
+For older installations:
+
+```powershell
+npm run runtime:migrate
+npm run runtime:doctor
+```
+
+## Before publishing
 
 ```powershell
 npm run security:check
+git status
 ```
 
-Never force-add `.chrome-profile`, `captures`, `assets`, `structure`, or `output` to Git.
+Do not force-add `.chrome-profile/`, `books/`, `backups/`, or legacy runtime folders.
