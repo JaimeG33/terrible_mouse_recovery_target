@@ -4,79 +4,44 @@
 
 ### Steps 1-4
 
-Implemented:
-
-- dedicated Chrome/CDP inspection and capture;
-- TOC/structure analysis;
-- asset inventory/browser-response recovery;
-- continuous HTML and PDF proof.
+Reader inspection/capture, TOC/structure analysis, asset recovery, continuous HTML, and PDF proof.
 
 ### Step 5 / 5.1
 
-Added:
-
-- chapter scope;
-- auxiliary XHTML preservation;
-- event-driven capture + polling fallback;
-- non-contiguous reader-ID handling;
-- status/diagnostic improvements;
-- Chrome lifecycle/security/docs cleanup.
+Chapter scoping, auxiliary XHTML, event-driven capture, ordering fixes, status, security, and documentation.
 
 ### Step 5.2 / 5.2.1
 
-Added:
-
-- one-pass XHTML + asset staging;
-- six-stage build pipeline;
-- Safe/Plain fallback;
-- reset/retry + backups;
-- multi-book runtime;
-- current-book selection;
-- targeted chapter health;
-- staged asset promotion;
-- runtime migration/doctor;
-- partial-migration repair.
+One-pass recording, build pipeline, fallback render modes, reset/retry, multi-book storage, staging promotion, and runtime migration repair.
 
 ### Step 5.2.2
 
-Fixed Windows PowerShell orchestration where the `record` wrapper could stop immediately after `book:use-current` and never launch `record`.
+Removed ambiguous Windows `npm.ps1` chaining from the record/build PowerShell orchestration.
 
-The wrapper now uses direct Node processes for the two recording startup stages and `npm.cmd` for multi-stage npm orchestration.
+### Step 5.2.3
+
+Fixed the remaining one-pass startup stall by making the short-lived book-selection CDP process explicitly terminate after registry writes.
+
+Also restored a documented legacy two-pass fallback and corrected the legacy asset watcher for the per-book runtime.
 
 ## Current operational stage
 
-Record/build remaining chapters with:
+Validate Chapter 3 with:
 
 ```text
 record -> status -> build
 ```
 
-The normal workflow requires one manual chapter traversal.
+Keep the legacy two-pass path available as a diagnostic fallback.
 
-## Next - Batch local chapter processing
+## Next
 
-Planned:
+Batch local processing of already-recorded chapters.
 
-- build multiple already-recorded chapters locally;
-- per-chapter success/failure reports;
-- no automatic online navigation to fill missing captures.
+## Final
 
-## Final - Master document / QA
-
-Planned:
-
-- combine completed chapter PDFs;
-- optional front matter/index/accessibility sections;
-- bookmarks/metadata where practical;
-- sanity checks and visual QA.
+Master PDF assembly and final QA.
 
 ## Future compatibility
 
-Potential later work:
-
-- better friendly book titles;
-- alternate TOC conventions;
-- different reader resource naming;
-- changed iframe/DOM selectors;
-- compatibility adapters;
-- highly interactive/script-dependent content handling.
+Reader adapters, friendlier book titles, alternate TOC/path conventions, and interactive-content handling.

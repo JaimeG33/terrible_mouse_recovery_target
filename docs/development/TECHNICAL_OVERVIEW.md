@@ -1,150 +1,93 @@
 # Technical Overview
 
-## Purpose
+## Current architecture
 
-The project is a local manual-navigation capture/reconstruction tool for supported McGraw Hill EPUB reader books.
-
-Current data flow:
+Recommended workflow:
 
 ```text
-manual navigation in dedicated Chrome
-          |
-          +------------------------+
-          |                        |
-          v                        v
- rendered XHTML             browser responses
-          |                        |
-          v                        v
-      captures/                 staging/
-          |                        |
-          +-----------+------------+
-                      |
-                      v
-                 build pipeline
-                      |
-            chapter validation
-                      |
-             asset inventory
-                      |
-            staged promotion
-                      |
-             asset validation
-                      |
-        normal / safe / plain assembly
-                      |
-                PDF rendering
+manual Chrome navigation
+        |
+        v
+one-pass record.mjs
+   |            |
+   v            v
+captures/     staging/
+   |            |
+   +-----+------+
+         |
+         v
+      build
 ```
 
-## Technologies
-
-- Node.js / ESM
-- PowerShell
-- Google Chrome
-- Chrome DevTools Protocol
-- `playwright-core`
-
-## Runtime roots
-
-`src/config.mjs` derives the source project root and active per-book runtime:
+All runtime paths are resolved under the active:
 
 ```text
-books/<activeBookId>/
+books/<bookId>/
 ```
 
-## Multi-book registry
+## Why the Chapter 1/2 workflow worked
 
-`src/book-manager.mjs` identifies the currently open EPUB root, selects/creates a local book record, and writes `books/active.json`.
+The historical standalone watchers (`capture.mjs` and `assets-capture.mjs`) each owned their complete Node process lifecycle.
 
-## Windows orchestration rule (0.6.2)
+They connected to Chrome over CDP, remained alive during manual navigation, then explicitly called `process.exit(...)` after `Ctrl+C`.
 
-Do not use unqualified `npm` for sequential orchestration inside project `.ps1` scripts.
+That dropped their CDP websocket and returned control to PowerShell.
 
-On Windows PowerShell, `npm` may resolve to `npm.ps1`. The npm PowerShell shim ends with an `exit` using the child exit code, which can terminate a parent orchestration scope before later commands run.
+## Why the new wrapper stalled
 
-Version 0.6.2 therefore:
+`book-manager.mjs use-current` became a new short-lived pre-recording CDP client.
 
-- invokes `node src/book-manager.mjs use-current` directly;
-- invokes `node src/record.mjs` directly afterward;
-- uses `npm.cmd` explicitly inside the multi-stage build wrapper.
+It connected using `chromium.connectOverCDP`, performed the registry writes, printed `Active book selected`, but did not close or otherwise release the CDP client.
 
-The book-selection and recorder stages intentionally use separate Node processes so `src/config.mjs` loads the newly written `books/active.json` when the recorder starts.
+Calling `browser.close()` was not appropriate because it could close the user's dedicated Chrome process.
 
-## One-pass recording
+Version 0.6.3 instead follows the old standalone lifecycle pattern: after all writes are awaited, it explicitly exits only the Node client process.
 
-`src/record.mjs` combines:
+## PowerShell orchestration
 
-- iframe navigation-event capture;
-- polling fallback;
-- XHTML deduplication;
-- scoped auxiliary XHTML preservation;
-- passive same-book resource staging.
+The project also avoids ambiguous `npm` in multi-stage `.ps1` orchestration because Windows may resolve it to `npm.ps1`.
 
-No automatic textbook navigation is performed.
+Where npm orchestration is needed, `npm.cmd` is used explicitly.
 
-## Asset promotion
+For the critical record startup sequence, the wrapper launches two direct Node processes:
 
-Captured XHTML is inventoried after recording.
+```text
+node book-manager.mjs use-current
+node record.mjs
+```
 
-Only staged resources whose URLs are required by the captured chapter are promoted to the chapter asset cache.
+## Legacy path
 
-## Validation
+`scripts/legacy-chapter.ps1` preserves the older independent pipeline:
 
-`src/chapter-health.mjs` distinguishes known linked missing readers from merely non-contiguous reader IDs.
+```text
+capture
+inventory
+assets
+validate
+assemble
+pdf
+```
 
-## Assembly modes
+The workflow behavior is historical, but runtime paths remain modern/per-book.
 
-- `normal`
-- `safe`
-- `plain`
+## Asset path correction
 
-Known missing XHTML remains blocking.
+The old asset watcher used:
 
-## Build orchestration
+```text
+<project>/assets/chapterXX
+```
 
-`scripts/build-chapter.ps1` runs:
+which was correct before multi-book support.
 
-1. chapter validation;
-2. asset inventory;
-3. staged promotion;
-4. asset validation;
-5. assembly;
-6. PDF rendering.
+After version 0.6, that became obsolete. Version 0.6.3 updates it to use `ASSET_ROOT`, keeping legacy asset capture inside the active book runtime.
 
-## Reset
+## Development rule
 
-Interactive PowerShell UI delegates to `src/reset-chapter.mjs`, which creates backups before destructive reset operations.
+Any short-lived tool that calls `connectOverCDP` must either:
 
-## Migration
+- remain intentionally long-running until user cancellation; or
+- explicitly terminate/disconnect its own client lifecycle after awaited work.
 
-`src/migrate-runtime.mjs` handles pre-0.6 runtime migration and partial-migration repair.
-
-`src/runtime-doctor.mjs` checks active runtime integrity.
-
-## Compatibility
-
-The current adapter expects the observed McGraw Hill reader URL/iframe/TOC conventions. It is reader-specific rather than textbook-title-specific.
-
-## Development environment
-
-Required:
-
-- Node.js 20+
-- npm
-- Google Chrome
-- Git
-- Windows PowerShell
-
-Recommended VS Code extension:
-
-- PowerShell by Microsoft
-
-## Safe development constraints
-
-Preserve:
-
-- manual navigation;
-- no cookie/token export;
-- no guessed textbook crawling;
-- per-book isolation;
-- Git-ignore runtime/book content;
-- never silently hide known missing text through formatting fallback.
+Do not call `browser.close()` merely to release a CDP client attached to user-owned dedicated Chrome.

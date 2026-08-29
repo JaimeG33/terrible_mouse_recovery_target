@@ -1,26 +1,52 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { PROJECT_ROOT } from "./config.mjs";
-import { connectToChrome, findReaderPage } from "./reader.mjs";
+import { ASSET_ROOT } from "./config.mjs";
+import {
+  connectToChrome,
+  findReaderPage
+} from "./reader.mjs";
 
-const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "1", 10);
+const chapterNumber = Number.parseInt(
+  process.env.MHE_CHAPTER || "1",
+  10
+);
+
 if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
-  throw new Error("MHE_CHAPTER must be a positive integer.");
+  throw new Error(
+    "MHE_CHAPTER must be a positive integer."
+  );
 }
 
 const captureCssDependencies =
-  /^(?:1|true|yes)$/i.test(process.env.MHE_CAPTURE_CSS_DEPS || "");
+  /^(?:1|true|yes)$/i.test(
+    process.env.MHE_CAPTURE_CSS_DEPS || ""
+  );
 
-const chapterLabel = `chapter${String(chapterNumber).padStart(2, "0")}`;
-const chapterAssetRoot = path.join(PROJECT_ROOT, "assets", chapterLabel);
-const cacheRoot = path.join(chapterAssetRoot, "cache");
-const inventoryPath = path.join(chapterAssetRoot, "inventory.json");
+const chapterLabel =
+  `chapter${String(chapterNumber).padStart(2, "0")}`;
+
+const chapterAssetRoot = path.join(
+  ASSET_ROOT,
+  chapterLabel
+);
+
+const cacheRoot = path.join(
+  chapterAssetRoot,
+  "cache"
+);
+
+const inventoryPath = path.join(
+  chapterAssetRoot,
+  "inventory.json"
+);
 
 let stopping = false;
 let inventory;
+
 const watched = new Map();
 const pendingWrites = new Set();
+
 let savedCount = 0;
 let seenCount = 0;
 let failedCount = 0;
@@ -29,22 +55,30 @@ let discoveredCssDeps = 0;
 process.on("SIGINT", () => {
   stopping = true;
 });
+
 process.on("SIGTERM", () => {
   stopping = true;
 });
 
 function sha256(value) {
-  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(value, "utf8")
+    .digest("hex");
 }
 
 function extFromUrl(url) {
   try {
     const pathname = new URL(url).pathname;
     const ext = path.extname(pathname);
-    if (/^\.[a-z0-9]{1,8}$/i.test(ext)) return ext.toLowerCase();
+
+    if (/^\.[a-z0-9]{1,8}$/i.test(ext)) {
+      return ext.toLowerCase();
+    }
   } catch {
     // Fall back below.
   }
+
   return ".bin";
 }
 
@@ -64,12 +98,28 @@ function normalizeUrl(value) {
 
 function resolveAssetUrl(raw, baseHref) {
   const value = String(raw || "").trim();
-  if (!value || value.startsWith("#")) return null;
-  if (/^(?:data|blob|javascript|mailto|tel):/i.test(value)) return null;
+
+  if (!value || value.startsWith("#")) {
+    return null;
+  }
+
+  if (
+    /^(?:data|blob|javascript|mailto|tel):/i.test(
+      value
+    )
+  ) {
+    return null;
+  }
 
   try {
     const url = new URL(value, baseHref);
-    if (!["http:", "https:"].includes(url.protocol)) return null;
+
+    if (
+      !["http:", "https:"].includes(url.protocol)
+    ) {
+      return null;
+    }
+
     url.hash = "";
     return url.href;
   } catch {
@@ -79,13 +129,24 @@ function resolveAssetUrl(raw, baseHref) {
 
 function extractCssUrls(css, baseHref) {
   const urls = [];
-  const regex = /url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)/gi;
+  const regex =
+    /url\(\s*(?:"([^"]+)"|'([^']+)'|([^'")\s]+))\s*\)/gi;
+
   let match;
 
   while ((match = regex.exec(css))) {
-    const value = match[1] ?? match[2] ?? match[3] ?? "";
-    const resolved = resolveAssetUrl(value, baseHref);
-    if (resolved) urls.push(resolved);
+    const value =
+      match[1] ??
+      match[2] ??
+      match[3] ??
+      "";
+
+    const resolved =
+      resolveAssetUrl(value, baseHref);
+
+    if (resolved) {
+      urls.push(resolved);
+    }
   }
 
   return [...new Set(urls)];
@@ -101,28 +162,47 @@ async function fileExists(filePath) {
 }
 
 function isDirectCapturedXhtmlEntry(entry) {
-  return (entry.referencedBy || []).some((source) =>
-    /\.xhtml$/i.test(String(source || ""))
+  return (entry.referencedBy || []).some(
+    (source) =>
+      /\.xhtml$/i.test(String(source || ""))
   );
 }
 
-function ensureInventoryEntry(url, kind, referencedBy) {
+function ensureInventoryEntry(
+  url,
+  kind,
+  referencedBy
+) {
   const normalized = normalizeUrl(url);
 
-  let entry = inventory.assets.find((item) => normalizeUrl(item.url) === normalized);
+  let entry = inventory.assets.find(
+    (item) =>
+      normalizeUrl(item.url) === normalized
+  );
 
   if (!entry) {
     entry = {
       url: normalized,
       kinds: [kind],
       referencedBy: [referencedBy],
-      localFile: `cache/${localNameForUrl(normalized)}`
+      localFile:
+        `cache/${localNameForUrl(normalized)}`
     };
+
     inventory.assets.push(entry);
   } else {
-    entry.kinds = [...new Set([...(entry.kinds || []), kind])].sort();
+    entry.kinds = [
+      ...new Set([
+        ...(entry.kinds || []),
+        kind
+      ])
+    ].sort();
+
     entry.referencedBy = [
-      ...new Set([...(entry.referencedBy || []), referencedBy])
+      ...new Set([
+        ...(entry.referencedBy || []),
+        referencedBy
+      ])
     ].sort();
   }
 
@@ -131,15 +211,23 @@ function ensureInventoryEntry(url, kind, referencedBy) {
 }
 
 async function saveInventory() {
-  inventory.assets.sort((a, b) => a.url.localeCompare(b.url));
-  inventory.assetCount = inventory.assets.length;
-  inventory.browserCaptureUpdatedAt = new Date().toISOString();
+  inventory.assets.sort(
+    (a, b) => a.url.localeCompare(b.url)
+  );
+
+  inventory.assetCount =
+    inventory.assets.length;
+
+  inventory.browserCaptureUpdatedAt =
+    new Date().toISOString();
+
   inventory.browserCaptureStats = {
     savedCount,
     seenCount,
     failedCount,
     discoveredCssDeps,
-    cssDependencyCaptureEnabled: captureCssDependencies
+    cssDependencyCaptureEnabled:
+      captureCssDependencies
   };
 
   await fs.writeFile(
@@ -152,7 +240,10 @@ async function saveInventory() {
 async function processResponse(response) {
   const url = normalizeUrl(response.url());
   const entry = watched.get(url);
-  if (!entry) return;
+
+  if (!entry) {
+    return;
+  }
 
   const task = (async () => {
     const status = response.status();
@@ -163,7 +254,10 @@ async function processResponse(response) {
       return;
     }
 
-    const localPath = path.join(chapterAssetRoot, entry.localFile);
+    const localPath = path.join(
+      chapterAssetRoot,
+      entry.localFile
+    );
 
     if (await fileExists(localPath)) {
       seenCount += 1;
@@ -171,8 +265,9 @@ async function processResponse(response) {
     }
 
     try {
-      // Read immediately. Calling response.finished() first made short-lived font
-      // responses more likely to become unavailable after a manual navigation.
+      // Read immediately. Waiting for response.finished() first made
+      // short-lived responses more likely to become unavailable after
+      // navigation.
       const body = await response.body();
 
       if (!body?.length) {
@@ -181,25 +276,43 @@ async function processResponse(response) {
         return;
       }
 
-      await fs.mkdir(path.dirname(localPath), { recursive: true });
+      await fs.mkdir(
+        path.dirname(localPath),
+        { recursive: true }
+      );
+
       await fs.writeFile(localPath, body);
 
       savedCount += 1;
-      const contentType = response.headers()["content-type"] || "";
+
+      const contentType =
+        response.headers()["content-type"] || "";
+
       console.log(
-        `[saved ${status}] ${entry.localFile} (${body.length} bytes) <- ${url}`
+        `[saved ${status}] ${entry.localFile} ` +
+        `(${body.length} bytes) <- ${url}`
       );
 
       const isCss =
         entry.kinds?.includes("stylesheet") ||
-        contentType.toLowerCase().includes("text/css") ||
+        contentType
+          .toLowerCase()
+          .includes("text/css") ||
         /\.css(?:$|\?)/i.test(url);
 
-      if (isCss && captureCssDependencies) {
+      if (
+        isCss &&
+        captureCssDependencies
+      ) {
         const css = body.toString("utf8");
 
-        for (const dependencyUrl of extractCssUrls(css, url)) {
-          if (watched.has(dependencyUrl)) continue;
+        for (
+          const dependencyUrl of
+          extractCssUrls(css, url)
+        ) {
+          if (watched.has(dependencyUrl)) {
+            continue;
+          }
 
           ensureInventoryEntry(
             dependencyUrl,
@@ -208,85 +321,161 @@ async function processResponse(response) {
           );
 
           discoveredCssDeps += 1;
-          console.log(`[watch+] CSS dependency ${dependencyUrl}`);
+
+          console.log(
+            `[watch+] CSS dependency ${dependencyUrl}`
+          );
         }
 
         await saveInventory();
       }
     } catch (error) {
       failedCount += 1;
-      console.log(`[body-error] ${url} :: ${error.message}`);
+
+      console.log(
+        `[body-error] ${url} :: ${error.message}`
+      );
     }
   })();
 
   pendingWrites.add(task);
-  task.finally(() => pendingWrites.delete(task));
+
+  task.finally(() =>
+    pendingWrites.delete(task)
+  );
 }
 
 try {
-  inventory = JSON.parse(await fs.readFile(inventoryPath, "utf8"));
+  inventory = JSON.parse(
+    await fs.readFile(
+      inventoryPath,
+      "utf8"
+    )
+  );
 
-  if (!Array.isArray(inventory.assets) || !inventory.assets.length) {
+  if (
+    !Array.isArray(inventory.assets) ||
+    !inventory.assets.length
+  ) {
     throw new Error(
-      `No asset inventory entries exist for Chapter ${chapterNumber}. Run npm run assets:inventory first.`
+      `No asset inventory entries exist for Chapter ${chapterNumber}. ` +
+      `Run the inventory action first.`
     );
   }
 
-  await fs.mkdir(cacheRoot, { recursive: true });
+  await fs.mkdir(cacheRoot, {
+    recursive: true
+  });
 
-  const initialEntries = captureCssDependencies
-    ? inventory.assets
-    : inventory.assets.filter(isDirectCapturedXhtmlEntry);
+  const initialEntries =
+    captureCssDependencies
+      ? inventory.assets
+      : inventory.assets.filter(
+          isDirectCapturedXhtmlEntry
+        );
 
   for (const entry of initialEntries) {
-    watched.set(normalizeUrl(entry.url), entry);
+    watched.set(
+      normalizeUrl(entry.url),
+      entry
+    );
   }
 
-  const browser = await connectToChrome();
-  const page = await findReaderPage(browser);
+  const browser =
+    await connectToChrome();
 
-  page.on("response", processResponse);
+  const page =
+    await findReaderPage(browser);
 
-  console.log("\nBrowser-response asset capture started.");
-  console.log(`Chapter: ${chapterNumber}`);
-  console.log(`Watching ${watched.size} required/direct asset URLs.`);
+  page.on(
+    "response",
+    processResponse
+  );
+
+  console.log(
+    "\nBrowser-response asset capture started."
+  );
+
+  console.log(
+    `Chapter: ${chapterNumber}`
+  );
+
+  console.log(
+    `Watching ${watched.size} required/direct asset URLs.`
+  );
+
+  console.log(
+    `Asset root: ${chapterAssetRoot}`
+  );
 
   if (!captureCssDependencies) {
     console.log(
-      "Generic CSS font/icon dependencies are not being watched because they are optional for the accepted PDF fidelity level."
+      "Generic CSS font/icon dependencies are not being watched by default."
     );
   }
 
   console.log("");
+
   console.log(
     `Navigate Chapter ${chapterNumber} normally in the dedicated Chrome window and scroll through the chapter.`
   );
+
   console.log(
     "This tool only saves matching resource responses that Chrome itself receives."
   );
-  console.log("Press Ctrl+C here when finished.\n");
+
+  console.log(
+    "Press Ctrl+C here when finished.\n"
+  );
 
   while (!stopping) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise(
+      (resolve) =>
+        setTimeout(resolve, 250)
+    );
   }
 
-  await Promise.allSettled([...pendingWrites]);
+  await Promise.allSettled([
+    ...pendingWrites
+  ]);
+
   await saveInventory();
 
-  console.log("\nBrowser-response asset capture stopped.");
-  console.log(`Saved: ${savedCount}`);
-  console.log(`Already cached/seen: ${seenCount}`);
-  console.log(`Failed response bodies: ${failedCount}`);
+  console.log(
+    "\nBrowser-response asset capture stopped."
+  );
+
+  console.log(
+    `Saved: ${savedCount}`
+  );
+
+  console.log(
+    `Already cached/seen: ${seenCount}`
+  );
+
+  console.log(
+    `Failed response bodies: ${failedCount}`
+  );
 
   if (captureCssDependencies) {
-    console.log(`New CSS dependencies discovered: ${discoveredCssDeps}`);
+    console.log(
+      `New CSS dependencies discovered: ${discoveredCssDeps}`
+    );
   }
 
-  console.log(`Inventory tracks: ${inventory.assets.length} assets\n`);
+  console.log(
+    `Inventory tracks: ${inventory.assets.length} assets\n`
+  );
 } catch (error) {
-  console.error(`\nBROWSER ASSET CAPTURE FAILED\n${error.message}\n`);
+  console.error(
+    `\nBROWSER ASSET CAPTURE FAILED\n${error.message}\n`
+  );
+
   process.exitCode = 1;
 } finally {
-  // Drop the CDP connection without intentionally closing the dedicated Chrome.
-  process.exit(process.exitCode || 0);
+  // Match the lifecycle behavior of the historical standalone tools:
+  // terminate this Node CDP client without closing the user's Chrome.
+  process.exit(
+    process.exitCode || 0
+  );
 }

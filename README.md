@@ -2,108 +2,83 @@
 
 A local accessibility/recovery helper for supported McGraw Hill eBook reader books.
 
-The tool uses a dedicated Chrome profile and records **only content you manually navigate to**. During one chapter pass it saves rendered XHTML and passively stages matching book assets that Chrome naturally loads. It can then validate, assemble, and render that chapter to continuous HTML and PDF.
+The normal workflow records content you manually navigate to in dedicated Chrome, then reconstructs the local capture into continuous HTML/PDF.
 
-It does not automatically crawl hidden textbook URLs or export account cookies/tokens into scripts.
+## Recommended workflow
 
-## Normal workflow
-
-Install once:
-
-```powershell
-npm install
-```
-
-Start the dedicated Chrome window:
+Start Chrome:
 
 ```powershell
 npm run chrome:start
 ```
 
-Sign into McGraw Hill and open the book.
-
-Record a chapter once:
+Record one chapter:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action record
 ```
 
-The command should print:
+A successful start must reach:
 
 ```text
-Active book selected
-...
-Launching one-pass chapter recorder...
-...
 ONE-PASS CHAPTER RECORDING READY
 ```
 
-Do **not** start navigating until `ONE-PASS CHAPTER RECORDING READY` appears.
+Then manually traverse the chapter and press `Ctrl+C` when you reach the next chapter.
 
-Then manually traverse the chapter. Press `Ctrl+C` when you reach the next chapter.
+Check:
 
-Build the chapter:
+```powershell
+npm run status
+```
+
+Build:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action build
 ```
 
-The build pipeline runs:
+## Legacy two-pass workflow
 
-```text
-chapter validation
--> asset inventory
--> one-pass staged asset matching
--> asset validation
--> HTML assembly
--> PDF rendering
-```
-
-If normal publisher formatting fails while captured text is intact, the build can offer:
-
-- **Safe** mode: semantic HTML and available images with simple built-in CSS.
-- **Plain** mode: text-first reconstruction with minimal formatting.
-
-Known missing XHTML/text remains a hard stop.
-
-## Multiple books
-
-Runtime data is isolated under:
-
-```text
-books/<bookId>/
-```
-
-List registered local books:
+The older Chapter 1/2 workflow remains available as a fallback:
 
 ```powershell
-npm run books
+.\scripts\legacy-chapter.ps1 -Chapter 3 -Action capture
+# manually traverse Chapter 3, then Ctrl+C
+
+.\scripts\legacy-chapter.ps1 -Chapter 3 -Action inventory
+
+.\scripts\legacy-chapter.ps1 -Chapter 3 -Action assets
+# manually traverse Chapter 3 again, then Ctrl+C
+
+.\scripts\legacy-chapter.ps1 -Chapter 3 -Action validate
+.\scripts\legacy-chapter.ps1 -Chapter 3 -Action assemble
+.\scripts\legacy-chapter.ps1 -Chapter 3 -Action pdf
 ```
 
-`Action record` automatically selects/registers the McGraw Hill book currently open in the dedicated Chrome reader.
+See:
 
-Check the active runtime:
-
-```powershell
-npm run runtime:doctor
+```text
+docs/usage-guide/LEGACY_RECORDING.md
 ```
 
-## Reset / retry
+for the historical workflow and why it is retained.
+
+## Recovery / books / diagnostics
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 3 -Action reset
-```
 
-The reset menu can clear generated output, chapter assets/staging, the entire chapter recording, or one `reader_N` fragment. Destructive resets create a backup first.
-
-## Useful diagnostics
-
-```powershell
-npm run status
-npm run structure
 npm run books
 npm run runtime:doctor
+npm run structure
 npm run security:check
+```
+
+Runtime book data is isolated under:
+
+```text
+books/<bookId>/
 ```
 
 ## Documentation
@@ -113,13 +88,8 @@ Start with:
 - `docs/usage-guide/STARTUP.md`
 - `docs/usage-guide/TYPICAL_USAGE.md`
 - `docs/usage-guide/COMMAND_REFERENCE.md`
+- `docs/usage-guide/LEGACY_RECORDING.md`
 - `docs/usage-guide/RECOVERY_AND_FALLBACKS.md`
 - `docs/usage-guide/MULTI_BOOK.md`
 - `docs/usage-guide/RUNTIME_AND_DATA_LAYOUT.md`
 - `docs/usage-guide/COMPATIBILITY.md`
-
-Developer notes are under:
-
-```text
-docs/development/
-```

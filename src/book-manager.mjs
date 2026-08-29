@@ -27,7 +27,12 @@ function deriveBookId(bookRoot) {
   try {
     const url = new URL(bookRoot);
     const sn = url.pathname.match(/\/publish\/([^/]+)\//i)?.[1];
-    if (sn) return sn.replace(/[^a-z0-9_-]+/gi, "-").toLowerCase();
+
+    if (sn) {
+      return sn
+        .replace(/[^a-z0-9_-]+/gi, "-")
+        .toLowerCase();
+    }
   } catch {
     // Fall back below.
   }
@@ -46,11 +51,15 @@ async function readJsonIfPresent(filePath) {
 
 async function writeIndex(index) {
   await fs.mkdir(BOOKS_ROOT, { recursive: true });
+
   index.schemaVersion = 1;
   index.updatedAt = new Date().toISOString();
   index.books = [...(index.books || [])].sort((a, b) =>
-    String(a.title || a.bookId).localeCompare(String(b.title || b.bookId))
+    String(a.title || a.bookId).localeCompare(
+      String(b.title || b.bookId)
+    )
   );
+
   await fs.writeFile(
     BOOK_INDEX_PATH,
     `${JSON.stringify(index, null, 2)}\n`,
@@ -82,7 +91,9 @@ async function selectCurrentBook() {
     books: []
   };
 
-  let record = index.books.find((book) => book.bookRoot === bookRoot);
+  let record = index.books.find(
+    (book) => book.bookRoot === bookRoot
+  );
 
   if (!record) {
     record = {
@@ -95,16 +106,33 @@ async function selectCurrentBook() {
     index.books.push(record);
   } else {
     record.lastUsedAt = new Date().toISOString();
-    if (!record.title && title) record.title = title;
+    if (!record.title && title) {
+      record.title = title;
+    }
   }
 
-  const runtimeRoot = path.join(BOOKS_ROOT, record.bookId);
-  const captureRoot = path.join(runtimeRoot, "captures");
-  const scopePath = path.join(captureRoot, "book-scope.json");
+  const runtimeRoot = path.join(
+    BOOKS_ROOT,
+    record.bookId
+  );
 
-  await fs.mkdir(captureRoot, { recursive: true });
+  const captureRoot = path.join(
+    runtimeRoot,
+    "captures"
+  );
 
-  const existingScope = await readJsonIfPresent(scopePath);
+  const scopePath = path.join(
+    captureRoot,
+    "book-scope.json"
+  );
+
+  await fs.mkdir(captureRoot, {
+    recursive: true
+  });
+
+  const existingScope =
+    await readJsonIfPresent(scopePath);
+
   if (!existingScope) {
     await fs.writeFile(
       scopePath,
@@ -128,6 +156,7 @@ async function selectCurrentBook() {
   }
 
   await writeIndex(index);
+
   await fs.writeFile(
     ACTIVE_BOOK_PATH,
     `${JSON.stringify(
@@ -145,15 +174,31 @@ async function selectCurrentBook() {
   console.log(`Book ID: ${record.bookId}`);
   console.log(`Title:   ${record.title}`);
   console.log(`Root:    ${record.bookRoot}\n`);
+
+  // Do NOT call browser.close(). This Browser object is attached over CDP to
+  // the user's already-running dedicated Chrome instance, and close() would
+  // terminate that Chrome session.
+  //
+  // The older standalone capture/asset tools worked because they explicitly
+  // terminated their Node process after finishing. This command also needs to
+  // drop its CDP websocket so a parent PowerShell wrapper can continue.
+  return record;
 }
 
 async function listBooks() {
-  const index = await readJsonIfPresent(BOOK_INDEX_PATH);
-  const active = await readJsonIfPresent(ACTIVE_BOOK_PATH);
+  const index =
+    await readJsonIfPresent(BOOK_INDEX_PATH);
+
+  const active =
+    await readJsonIfPresent(ACTIVE_BOOK_PATH);
 
   if (!index?.books?.length) {
-    console.log("\nNo local books have been registered yet.");
-    console.log("Open a McGraw Hill book and run a chapter `record` action.\n");
+    console.log(
+      "\nNo local books have been registered yet."
+    );
+    console.log(
+      "Open a McGraw Hill book and run a chapter `record` action.\n"
+    );
     return;
   }
 
@@ -161,7 +206,10 @@ async function listBooks() {
 
   console.table(
     index.books.map((book) => ({
-      active: book.bookId === active?.bookId ? "*" : "",
+      active:
+        book.bookId === active?.bookId
+          ? "*"
+          : "",
       bookId: book.bookId,
       title: book.title,
       lastUsedAt: book.lastUsedAt || ""
@@ -179,9 +227,29 @@ try {
   } else if (command === "list") {
     await listBooks();
   } else {
-    throw new Error(`Unknown book-manager command: ${command}`);
+    throw new Error(
+      `Unknown book-manager command: ${command}`
+    );
   }
 } catch (error) {
-  console.error(`\nBOOK MANAGER FAILED\n${error.message}\n`);
+  console.error(
+    `\nBOOK MANAGER FAILED\n${error.message}\n`
+  );
   process.exitCode = 1;
+} finally {
+  if (command === "use-current") {
+    // connectOverCDP keeps a live websocket in the Node event loop.
+    // `process.exitCode` alone would wait forever for that socket. The old
+    // standalone capture tools explicitly called process.exit() after their
+    // work completed, which is why they reliably returned control to PowerShell.
+    //
+    // All book registry/scope writes above are awaited before reaching here.
+    // Exiting this Node process drops only its CDP client connection; it does
+    // not close the dedicated Chrome process.
+    const code = process.exitCode || 0;
+    await new Promise((resolve) =>
+      setTimeout(resolve, 25)
+    );
+    process.exit(code);
+  }
 }
