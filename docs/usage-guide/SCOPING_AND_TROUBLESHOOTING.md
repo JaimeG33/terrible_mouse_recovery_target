@@ -6,7 +6,7 @@
 
 A workspace should contain runtime data for one book.
 
-On the first Step 5 capture, the project records the current EPUB book root in:
+The project records the current EPUB book root in:
 
 ```text
 captures/book-scope.json
@@ -14,7 +14,7 @@ captures/book-scope.json
 
 Future content capture sessions compare the current reader to that root.
 
-If you open a different textbook in the same dedicated Chrome profile, the capture watcher should stop with:
+If you open a different textbook in the same dedicated Chrome profile, the capture watcher stops with:
 
 ```text
 BOOK SCOPE MISMATCH
@@ -24,26 +24,17 @@ Use a separate project copy/workspace for the second book.
 
 ### Chapter scope
 
-Set a chapter before a long recording session so accidentally moving into another chapter does not save it.
-
-Recommended:
+Set a chapter before a long recording session:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 4 -Action capture
 ```
 
-Alternative:
+Standard `reader_N.xhtml` fragments from other chapters are ignored.
 
-```powershell
-$env:MHE_CHAPTER = "4"
-npm run capture
-```
+**Important:** a manually navigated same-book XHTML page that does not use the normal `chapterNN/reader_N.xhtml` filename is not automatically discarded. It is stored as an auxiliary fragment under the explicit chapter scope and ordered relative to the last normal reader fragment.
 
-If `MHE_CHAPTER` was set manually and you later want unrestricted behavior:
-
-```powershell
-Remove-Item Env:MHE_CHAPTER
-```
+This prevents chapter review/transition pages with alternate EPUB filenames from disappearing simply because their filename is different.
 
 ## "Could not connect to Chrome"
 
@@ -55,82 +46,96 @@ npm run chrome:start
 
 Then use the Chrome window started by that command.
 
-The app connects to:
-
-```text
-http://127.0.0.1:9222
-```
-
-unless `MHE_CDP_URL` is changed.
-
 ## "No open McGraw Hill reader page"
 
-The dedicated Chrome process is running, but the book reader is not currently open.
+Open the book in the dedicated Chrome window and wait for the reader to load, then retry:
 
-In that same dedicated window:
-
-1. open the McGraw Hill bookshelf;
-2. sign in;
-3. open the eBook;
-4. wait for the reader to finish loading;
-5. retry `npm run inspect`.
+```powershell
+npm run inspect
+```
 
 ## Capture says `outside-scope`
 
-This is expected when the watcher is scoped to one chapter and the reader is currently in another chapter.
+This is expected when a normal reader fragment clearly belongs to another chapter.
 
-Either navigate to the intended chapter or stop and restart with the correct chapter number.
+Example:
 
-## `BOOK SCOPE MISMATCH`
+```text
+[outside-scope] current chapter=3 reader=1; target chapter=2; not saved
+```
 
-The ignored runtime folders already belong to another book.
+## Capture says `captured-aux`
 
-Do not delete them if you need their captures.
+This means the manually navigated book displayed XHTML whose URL did not match the normal `chapterNN/reader_N.xhtml` pattern.
 
-Instead, archive/copy the project or make a separate clone for the other textbook.
+Example:
+
+```text
+[captured-aux] chapter=2 afterReader=3 ...
+```
+
+This is expected. The fragment is being preserved because the chapter scope and manual navigation provide the chapter context.
+
+## Status shows `numericGaps`
+
+Example:
+
+```text
+readers: 1, 2, 3, 4, 5, 6, 7, 9
+numericGaps: 8
+knownMissing: none
+```
+
+A numeric gap alone is not considered proof that content is missing. `reader_N` is a resource filename, not a guaranteed contiguous page sequence.
+
+The more important field is `knownMissing`.
+
+If `knownMissing` lists a number, captured XHTML explicitly references that reader file and you should revisit the chapter before building.
+
+To restore the older strict behavior for a diagnostic run:
+
+```powershell
+$env:MHE_STRICT_READER_SEQUENCE = "1"
+.\scripts\chapter.ps1 -Chapter 2 -Action assemble
+Remove-Item Env:MHE_STRICT_READER_SEQUENCE
+```
 
 ## `assets:download` returns HTTP 403
 
-McGraw Hill's EPUB CDN may allow the resource inside the signed-in browser session while rejecting a standalone Node request.
-
-Use:
+Use the signed-in browser-response workflow:
 
 ```powershell
 .\scripts\chapter.ps1 -Chapter 2 -Action assets
 ```
 
-and manually traverse the chapter in the dedicated Chrome window.
+## Asset capture used to print many font errors
 
-## Asset validation shows many missing fonts
+Step 5.1 no longer watches every generic font/icon declared by the global publisher stylesheet by default.
 
-Look at the **Direct XHTML assets** section first.
+Direct chapter assets remain watched.
 
-The publisher's global stylesheet can declare many fonts/icons that a particular chapter never uses. These supplemental items do not block the normal proof/build when all directly referenced XHTML assets are present.
+Optional CSS dependency capture can be enabled manually:
+
+```powershell
+$env:MHE_CAPTURE_CSS_DEPS = "1"
+```
+
+For normal chapter PDFs this is usually unnecessary.
 
 ## A required opening image is missing
 
-Start the asset watcher while positioned outside the target opening page, then jump into the chapter after the watcher has started. This gives the watcher a chance to observe the image's response.
+Start the asset watcher while positioned outside the target opening page, then navigate into the chapter after the watcher starts.
 
 ## PDF fonts differ slightly from the website
 
 Some publisher fonts may not have been cached.
 
-If text, figures, tables, and reading order remain usable, this can be accepted rather than spending time reproducing every publisher font exactly.
+If text, figures, tables, and reading order remain usable, this can be accepted.
 
 ## Chrome appears to remain running
 
-Closing the whole dedicated Chrome window is normally sufficient. Step 5 launches it with background mode disabled.
-
-To explicitly close the debugging browser:
+Close the whole dedicated Chrome window normally or run:
 
 ```powershell
 npm run chrome:stop
 ```
-
-## The wrong book/chapter was already captured before Step 5
-
-`captures/`, `assets/`, `structure/`, and `output/` are local runtime folders.
-
-Review them before deleting anything.
-
-For a clean second book, the safest method is a separate clone/copy of the project rather than manually mixing and deleting files inside one workspace.

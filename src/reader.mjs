@@ -52,19 +52,14 @@ export async function findReaderPage(browser) {
   );
 }
 
-export async function getReaderSnapshot(page) {
-  const iframeHandle = await page.$("#clo-iframe");
-  if (!iframeHandle) {
-    throw new Error("The reader page is open, but iframe#clo-iframe is not currently present.");
-  }
-
-  const frame = await iframeHandle.contentFrame();
-  if (!frame) {
-    throw new Error("iframe#clo-iframe exists, but its document is not available yet.");
-  }
-
+async function snapshotFrame(frame, outerPageUrl) {
   const snapshot = await frame.evaluate(() => {
-    const baseHref = document.querySelector("base")?.href || "";
+    const baseHref =
+      document.querySelector("base")?.href ||
+      document.baseURI ||
+      location.href ||
+      "";
+
     const title = document.title || "";
     const html = document.documentElement?.outerHTML || "";
     const textLength = document.body?.innerText?.length || 0;
@@ -92,13 +87,34 @@ export async function getReaderSnapshot(page) {
 
   return {
     ...snapshot,
-    outerPageUrl: page.url(),
+    outerPageUrl,
     capturedAt: new Date().toISOString()
   };
 }
 
+export async function getReaderSnapshotFromFrame(frame, outerPageUrl = "") {
+  return snapshotFrame(frame, outerPageUrl || frame.page().url());
+}
+
+export async function getReaderSnapshot(page) {
+  const iframeHandle = await page.$("#clo-iframe");
+  if (!iframeHandle) {
+    throw new Error("The reader page is open, but iframe#clo-iframe is not currently present.");
+  }
+
+  const frame = await iframeHandle.contentFrame();
+  if (!frame) {
+    throw new Error("iframe#clo-iframe exists, but its document is not available yet.");
+  }
+
+  return getReaderSnapshotFromFrame(frame, page.url());
+}
+
 export function parseReaderLocation(baseHref) {
-  const match = baseHref.match(/\/chapter(\d+)\/reader_(\d+)\.xhtml(?:[#?].*)?$/i);
+  const match = String(baseHref || "").match(
+    /\/chapter(\d+)\/reader_(\d+)\.xhtml(?:[#?].*)?$/i
+  );
+
   if (!match) {
     return null;
   }
@@ -117,15 +133,23 @@ function pad2(value) {
   return String(value).padStart(2, "0");
 }
 
-function fallbackName(snapshot) {
+function fallbackName(snapshot, chapterNumberOverride = null) {
   const digest = sha256(snapshot.html).slice(0, 12);
+
+  if (Number.isInteger(chapterNumberOverride)) {
+    return path.join(
+      `chapter${pad2(chapterNumberOverride)}`,
+      `aux_${digest}.xhtml`
+    );
+  }
+
   return path.join("unclassified", `fragment_${digest}.xhtml`);
 }
 
-function relativeCapturePath(snapshot) {
+function relativeCapturePath(snapshot, chapterNumberOverride = null) {
   const location = parseReaderLocation(snapshot.baseHref);
   if (!location) {
-    return fallbackName(snapshot);
+    return fallbackName(snapshot, chapterNumberOverride);
   }
 
   return path.join(
@@ -141,7 +165,7 @@ async function readManifest() {
   } catch (error) {
     if (error.code === "ENOENT") {
       return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         createdAt: new Date().toISOString(),
         captures: []
       };
@@ -152,19 +176,29 @@ async function readManifest() {
 
 async function writeManifest(manifest) {
   await fs.mkdir(CAPTURE_ROOT, { recursive: true });
+  manifest.schemaVersion = Math.max(manifest.schemaVersion || 1, 2);
   manifest.updatedAt = new Date().toISOString();
   await fs.writeFile(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
-export async function saveSnapshot(snapshot) {
+export async function saveSnapshot(snapshot, options = {}) {
   if (!snapshot.html.trim()) {
     return { saved: false, reason: "empty-html" };
   }
 
   const manifest = await readManifest();
   const digest = sha256(snapshot.html);
-  const relPath = relativeCapturePath(snapshot);
   const location = parseReaderLocation(snapshot.baseHref);
+  const chapterNumberOverride = Number.isInteger(options.chapterNumberOverride)
+    ? options.chapterNumberOverride
+    : null;
+
+  const effectiveChapterNumber =
+    location?.chapterNumber ??
+    chapterNumberOverride ??
+    null;
+
+  const relPath = relativeCapturePath(snapshot, chapterNumberOverride);
 
   const duplicate = manifest.captures.find((entry) => {
     if (snapshot.baseHref && entry.baseHref === snapshot.baseHref) {
@@ -174,7 +208,45 @@ export async function saveSnapshot(snapshot) {
   });
 
   if (duplicate) {
-    return { saved: false, reason: "duplicate", entry: duplicate };
+    let changed = false;
+
+    if (
+      !Number.isInteger(duplicate.chapterNumber) &&
+      Number.isInteger(effectiveChapterNumber)
+    ) {
+      duplicate.chapterNumber = effectiveChapterNumber;
+      duplicate.scopedAuxiliary = !location;
+      changed = true;
+    }
+
+    if (!location && Number.isInteger(chapterNumberOverride)) {
+      if (duplicate.afterReaderNumber !== (options.afterReaderNumber ?? null)) {
+        duplicate.afterReaderNumber = options.afterReaderNumber ?? null;
+        changed = true;
+      }
+
+      if (duplicate.auxOrderWithinGap !== (options.auxOrderWithinGap ?? null)) {
+        duplicate.auxOrderWithinGap = options.auxOrderWithinGap ?? null;
+        changed = true;
+      }
+
+      if (duplicate.scopedAuxiliary !== true) {
+        duplicate.scopedAuxiliary = true;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      duplicate.updatedAt = new Date().toISOString();
+      await writeManifest(manifest);
+    }
+
+    return {
+      saved: false,
+      reason: "duplicate",
+      updated: changed,
+      entry: duplicate
+    };
   }
 
   const absPath = path.join(CAPTURE_ROOT, relPath);
@@ -185,15 +257,29 @@ export async function saveSnapshot(snapshot) {
     "Captured from an already-rendered McGraw Hill reader iframe.",
     `Captured: ${snapshot.capturedAt}`,
     `Base: ${snapshot.baseHref}`,
+    Number.isInteger(chapterNumberOverride) && !location
+      ? `Manual chapter scope: ${chapterNumberOverride} (auxiliary/non-reader fragment)`
+      : null,
     "Manual navigation only; this file was not retrieved by URL crawling.",
     "-->"
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   await fs.writeFile(absPath, `${sourceComment}\n${snapshot.html}\n`, "utf8");
 
   const entry = {
-    chapterNumber: location?.chapterNumber ?? null,
+    chapterNumber: effectiveChapterNumber,
     readerNumber: location?.readerNumber ?? null,
+    scopedAuxiliary: !location && Number.isInteger(chapterNumberOverride),
+    afterReaderNumber:
+      !location && Number.isInteger(chapterNumberOverride)
+        ? options.afterReaderNumber ?? null
+        : null,
+    auxOrderWithinGap:
+      !location && Number.isInteger(chapterNumberOverride)
+        ? options.auxOrderWithinGap ?? null
+        : null,
     baseHref: snapshot.baseHref,
     title: snapshot.title,
     outerPageUrl: snapshot.outerPageUrl,
@@ -207,11 +293,17 @@ export async function saveSnapshot(snapshot) {
   };
 
   manifest.captures.push(entry);
+
   manifest.captures.sort((a, b) => {
     const ca = a.chapterNumber ?? 9999;
     const cb = b.chapterNumber ?? 9999;
     if (ca !== cb) return ca - cb;
-    return (a.readerNumber ?? 9999) - (b.readerNumber ?? 9999);
+
+    const ra = a.readerNumber ?? 9999;
+    const rb = b.readerNumber ?? 9999;
+    if (ra !== rb) return ra - rb;
+
+    return String(a.capturedAt || "").localeCompare(String(b.capturedAt || ""));
   });
 
   await writeManifest(manifest);

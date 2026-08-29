@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { CAPTURE_ROOT, MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
 import { readBookScope } from "./book-scope.mjs";
+import { analyzeChapterCaptures } from "./capture-order.mjs";
 
 const TOC_PATH = path.join(PROJECT_ROOT, "structure", "toc.json");
 
@@ -12,10 +13,6 @@ async function readJsonIfPresent(filePath) {
     if (error.code === "ENOENT") return null;
     throw error;
   }
-}
-
-function sortedNumbers(values) {
-  return [...new Set(values)].sort((a, b) => a - b);
 }
 
 try {
@@ -29,42 +26,28 @@ try {
     process.exit(0);
   }
 
-  const chapters = new Map();
-
-  function ensureChapter(chapterNumber) {
-    if (!chapters.has(chapterNumber)) {
-      chapters.set(chapterNumber, {
-        chapterNumber,
-        title: null,
-        readers: [],
-        fragments: 0,
-        pageMarkers: 0
-      });
-    }
-
-    return chapters.get(chapterNumber);
-  }
+  const chapterTitles = new Map();
 
   for (const node of toc?.nodes || []) {
     if (node.level !== 0) continue;
+
     const match = String(node.label || "").match(/\bChapter\s+(\d+)\b/i);
     if (!match) continue;
 
-    const chapter = ensureChapter(Number.parseInt(match[1], 10));
-    chapter.title = node.label;
+    chapterTitles.set(
+      Number.parseInt(match[1], 10),
+      node.label
+    );
   }
 
-  for (const entry of manifest.captures) {
-    if (!Number.isInteger(entry.chapterNumber)) continue;
-
-    const chapter = ensureChapter(entry.chapterNumber);
-    chapter.fragments += 1;
-    chapter.pageMarkers += (entry.pageBreaks || []).length;
-
-    if (Number.isInteger(entry.readerNumber)) {
-      chapter.readers.push(entry.readerNumber);
-    }
-  }
+  const chapterNumbers = [
+    ...new Set([
+      ...chapterTitles.keys(),
+      ...manifest.captures
+        .map((entry) => entry.chapterNumber)
+        .filter(Number.isInteger)
+    ])
+  ].sort((a, b) => a - b);
 
   console.log("\nCapture status\n");
 
@@ -79,22 +62,43 @@ try {
   console.log("");
 
   console.table(
-    [...chapters.values()]
-      .sort((a, b) => a.chapterNumber - b.chapterNumber)
-      .map((chapter) => ({
-        chapter: chapter.chapterNumber,
-        title: chapter.title || "",
-        capturedReaders: sortedNumbers(chapter.readers).join(", ") || "(none)",
-        fragments: chapter.fragments,
-        pageMarkers: chapter.pageMarkers
-      }))
+    chapterNumbers.map((chapterNumber) => {
+      const analysis = analyzeChapterCaptures(
+        manifest.captures,
+        chapterNumber
+      );
+
+      const pageMarkers = analysis.captures.reduce(
+        (sum, entry) => sum + (entry.pageBreaks || []).length,
+        0
+      );
+
+      return {
+        chapter: chapterNumber,
+        title: chapterTitles.get(chapterNumber) || "",
+        readers: analysis.readerNumbers.join(", ") || "(none)",
+        auxiliary: analysis.auxiliaryCount,
+        numericGaps:
+          analysis.numericGaps.length
+            ? analysis.numericGaps.join(", ")
+            : "none",
+        knownMissing:
+          analysis.knownLinkedMissing.length
+            ? analysis.knownLinkedMissing.join(", ")
+            : "none",
+        pageMarkers
+      };
+    })
   );
 
   console.log(
-    "\nStatus reports what has been observed and saved. It does not prove that an entire chapter has been manually traversed."
+    "\n`numericGaps` are informational because McGraw Hill reader file numbers may skip."
   );
   console.log(
-    "Use `npm run structure` after capture sessions for linked-reader and TOC/spine diagnostics.\n"
+    "`knownMissing` means captured XHTML explicitly references a reader fragment that is not saved and should be investigated."
+  );
+  console.log(
+    "Auxiliary fragments are non-reader_N XHTML encountered during a manually scoped chapter pass and are preserved in sequence.\n"
   );
 } catch (error) {
   console.error(`\nSTATUS FAILED\n${error.message}\n`);

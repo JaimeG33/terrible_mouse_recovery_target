@@ -1,6 +1,6 @@
 {
   "name": "terrible-mouse-recovery-target",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "Manual-navigation capture and local reconstruction helper for supported McGraw Hill EPUB reader books.",

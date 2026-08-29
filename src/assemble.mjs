@@ -2,12 +2,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { CAPTURE_ROOT, MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
+import {
+  analyzeChapterCaptures,
+  sortChapterCaptures
+} from "./capture-order.mjs";
 
 const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "1", 10);
 
 if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
   throw new Error("MHE_CHAPTER must be a positive integer.");
 }
+
+const strictReaderSequence =
+  /^(?:1|true|yes)$/i.test(process.env.MHE_STRICT_READER_SEQUENCE || "");
 
 const pad2 = (value) => String(value).padStart(2, "0");
 const chapterLabel = `chapter${pad2(chapterNumber)}`;
@@ -84,8 +91,6 @@ function rewriteCssUrls(css, baseHref, localUrlFor) {
       const local = localUrlFor(absolute);
       if (local) return `url("${local}")`;
 
-      // Generic publisher stylesheets declare many optional fonts/icons.
-      // Avoid network requests for unresolved dependencies in the local proof.
       return 'url("data:,")';
     }
   );
@@ -155,29 +160,64 @@ async function fileExists(filePath) {
   }
 }
 
+function captureLabel(entry) {
+  if (Number.isInteger(entry.readerNumber)) {
+    return `reader_${pad2(entry.readerNumber)}`;
+  }
+
+  const after = Number.isInteger(entry.afterReaderNumber)
+    ? pad2(entry.afterReaderNumber)
+    : "unknown";
+
+  const ordinal = Number.isInteger(entry.auxOrderWithinGap)
+    ? pad2(entry.auxOrderWithinGap)
+    : "01";
+
+  return `aux_after_${after}_${ordinal}`;
+}
+
 try {
   const manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
   const inventory = JSON.parse(await fs.readFile(inventoryPath, "utf8"));
 
-  const captures = (manifest.captures || [])
-    .filter((entry) => entry.chapterNumber === chapterNumber)
-    .sort((a, b) => (a.readerNumber ?? 9999) - (b.readerNumber ?? 9999));
+  const analysis = analyzeChapterCaptures(
+    manifest.captures || [],
+    chapterNumber
+  );
+
+  const captures = sortChapterCaptures(analysis.captures);
 
   if (!captures.length) {
     throw new Error(`No captured XHTML fragments found for Chapter ${chapterNumber}.`);
   }
 
-  const readerNumbers = captures
-    .map((entry) => entry.readerNumber)
-    .filter(Number.isInteger);
-
-  const maxReader = Math.max(...readerNumbers);
-  const expected = Array.from({ length: maxReader }, (_, index) => index + 1);
-  const missingReaders = expected.filter((reader) => !readerNumbers.includes(reader));
-
-  if (missingReaders.length) {
+  if (analysis.knownLinkedMissing.length) {
     throw new Error(
-      `Chapter ${chapterNumber} has internal reader gaps: ${missingReaders.join(", ")}`
+      `Chapter ${chapterNumber} explicitly references uncaptured reader fragments: ` +
+      `${analysis.knownLinkedMissing.join(", ")}. Re-run the scoped capture before assembling.`
+    );
+  }
+
+  if (analysis.numericGaps.length) {
+    const message =
+      `Chapter ${chapterNumber} has non-contiguous reader file IDs: ` +
+      `${analysis.numericGaps.join(", ")}. Reader IDs are not assumed to be continuous.`;
+
+    if (strictReaderSequence) {
+      throw new Error(
+        `${message} MHE_STRICT_READER_SEQUENCE is enabled.`
+      );
+    }
+
+    console.log(`\n[warning] ${message}`);
+    console.log(
+      "Assembly will continue because none of those IDs are explicitly referenced by the captured XHTML."
+    );
+  }
+
+  if (analysis.auxiliaryCount) {
+    console.log(
+      `[info] Including ${analysis.auxiliaryCount} manually observed auxiliary XHTML fragment(s) in chapter order.`
     );
   }
 
@@ -199,7 +239,10 @@ try {
 
     const abs = path.join(assetRoot, entry.localFile);
     if (!(await fileExists(abs))) {
-      throw new Error(`Required stylesheet is missing: ${entry.url}`);
+      // A stylesheet that came only from generic CSS dependency expansion is
+      // supplemental. Direct asset validation is responsible for blocking
+      // genuinely required chapter stylesheets.
+      continue;
     }
 
     const css = await fs.readFile(abs, "utf8");
@@ -229,12 +272,12 @@ try {
     const rewritten = rewriteHtmlAssets(cleaned, entry.baseHref, localUrlFor);
 
     fragments.push(
-      `<!-- ${chapterLabel} reader_${pad2(entry.readerNumber)} -->\n${rewritten}`
+      `<!-- ${chapterLabel} ${captureLabel(entry)} -->\n${rewritten}`
     );
   }
 
   const title =
-    captures[0]?.title ||
+    captures.find((entry) => entry.title)?.title ||
     `Chapter ${chapterNumber}`;
 
   const reconstructionCss = `
@@ -281,7 +324,9 @@ ${fragments.join("\n\n")}
 
   console.log("\nChapter reconstruction assembled\n");
   console.log(`Chapter: ${chapterNumber}`);
-  console.log(`Fragments: ${captures.length}`);
+  console.log(`Reader fragments: ${analysis.readerNumbers.length}`);
+  console.log(`Auxiliary fragments: ${analysis.auxiliaryCount}`);
+  console.log(`Total XHTML fragments: ${captures.length}`);
   console.log(`Cached resources available: ${localMap.size}`);
   console.log(`Saved: ${htmlPath}\n`);
 } catch (error) {

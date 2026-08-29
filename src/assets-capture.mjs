@@ -9,12 +9,14 @@ if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
   throw new Error("MHE_CHAPTER must be a positive integer.");
 }
 
+const captureCssDependencies =
+  /^(?:1|true|yes)$/i.test(process.env.MHE_CAPTURE_CSS_DEPS || "");
+
 const chapterLabel = `chapter${String(chapterNumber).padStart(2, "0")}`;
 const chapterAssetRoot = path.join(PROJECT_ROOT, "assets", chapterLabel);
 const cacheRoot = path.join(chapterAssetRoot, "cache");
 const inventoryPath = path.join(chapterAssetRoot, "inventory.json");
 
-let browser;
 let stopping = false;
 let inventory;
 const watched = new Map();
@@ -98,6 +100,12 @@ async function fileExists(filePath) {
   }
 }
 
+function isDirectCapturedXhtmlEntry(entry) {
+  return (entry.referencedBy || []).some((source) =>
+    /\.xhtml$/i.test(String(source || ""))
+  );
+}
+
 function ensureInventoryEntry(url, kind, referencedBy) {
   const normalized = normalizeUrl(url);
 
@@ -130,7 +138,8 @@ async function saveInventory() {
     savedCount,
     seenCount,
     failedCount,
-    discoveredCssDeps
+    discoveredCssDeps,
+    cssDependencyCaptureEnabled: captureCssDependencies
   };
 
   await fs.writeFile(
@@ -162,7 +171,8 @@ async function processResponse(response) {
     }
 
     try {
-      await response.finished().catch(() => {});
+      // Read immediately. Calling response.finished() first made short-lived font
+      // responses more likely to become unavailable after a manual navigation.
       const body = await response.body();
 
       if (!body?.length) {
@@ -185,8 +195,9 @@ async function processResponse(response) {
         contentType.toLowerCase().includes("text/css") ||
         /\.css(?:$|\?)/i.test(url);
 
-      if (isCss) {
+      if (isCss && captureCssDependencies) {
         const css = body.toString("utf8");
+
         for (const dependencyUrl of extractCssUrls(css, url)) {
           if (watched.has(dependencyUrl)) continue;
 
@@ -223,27 +234,35 @@ try {
 
   await fs.mkdir(cacheRoot, { recursive: true });
 
-  for (const entry of inventory.assets) {
+  const initialEntries = captureCssDependencies
+    ? inventory.assets
+    : inventory.assets.filter(isDirectCapturedXhtmlEntry);
+
+  for (const entry of initialEntries) {
     watched.set(normalizeUrl(entry.url), entry);
   }
 
-  browser = await connectToChrome();
+  const browser = await connectToChrome();
   const page = await findReaderPage(browser);
 
   page.on("response", processResponse);
 
   console.log("\nBrowser-response asset capture started.");
   console.log(`Chapter: ${chapterNumber}`);
-  console.log(`Watching ${watched.size} known asset URLs.`);
+  console.log(`Watching ${watched.size} required/direct asset URLs.`);
+
+  if (!captureCssDependencies) {
+    console.log(
+      "Generic CSS font/icon dependencies are not being watched because they are optional for the accepted PDF fidelity level."
+    );
+  }
+
   console.log("");
   console.log(
-    "Navigate Chapter 1 normally in the dedicated Chrome window and scroll through the pages."
+    `Navigate Chapter ${chapterNumber} normally in the dedicated Chrome window and scroll through the chapter.`
   );
   console.log(
     "This tool only saves matching resource responses that Chrome itself receives."
-  );
-  console.log(
-    "If CSS adds font/background dependencies, they will be added to the watch list automatically."
   );
   console.log("Press Ctrl+C here when finished.\n");
 
@@ -258,13 +277,16 @@ try {
   console.log(`Saved: ${savedCount}`);
   console.log(`Already cached/seen: ${seenCount}`);
   console.log(`Failed response bodies: ${failedCount}`);
-  console.log(`New CSS dependencies discovered: ${discoveredCssDeps}`);
-  console.log(`Inventory now tracks: ${inventory.assets.length} assets\n`);
+
+  if (captureCssDependencies) {
+    console.log(`New CSS dependencies discovered: ${discoveredCssDeps}`);
+  }
+
+  console.log(`Inventory tracks: ${inventory.assets.length} assets\n`);
 } catch (error) {
   console.error(`\nBROWSER ASSET CAPTURE FAILED\n${error.message}\n`);
   process.exitCode = 1;
 } finally {
-  // This tool attached to an already-running dedicated Chrome instance.
-  // Exit the Node process to drop the CDP connection without intentionally closing Chrome.
+  // Drop the CDP connection without intentionally closing the dedicated Chrome.
   process.exit(process.exitCode || 0);
 }

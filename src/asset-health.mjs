@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { PROJECT_ROOT } from "./config.mjs";
+import { MANIFEST_PATH, PROJECT_ROOT } from "./config.mjs";
 
 const chapterNumber = Number.parseInt(process.env.MHE_CHAPTER || "1", 10);
 
@@ -11,12 +11,6 @@ if (!Number.isInteger(chapterNumber) || chapterNumber < 1) {
 const chapterLabel = `chapter${String(chapterNumber).padStart(2, "0")}`;
 const assetRoot = path.join(PROJECT_ROOT, "assets", chapterLabel);
 const inventoryPath = path.join(assetRoot, "inventory.json");
-
-function isDirectXhtmlAsset(entry) {
-  return (entry.referencedBy || []).some((source) =>
-    new RegExp(`^${chapterLabel}/reader_\\d+\\.xhtml$`, "i").test(source)
-  );
-}
 
 async function exists(filePath) {
   try {
@@ -29,6 +23,19 @@ async function exists(filePath) {
 
 try {
   const inventory = JSON.parse(await fs.readFile(inventoryPath, "utf8"));
+  const manifest = JSON.parse(await fs.readFile(MANIFEST_PATH, "utf8"));
+
+  const chapterSourceFiles = new Set(
+    (manifest.captures || [])
+      .filter((entry) => entry.chapterNumber === chapterNumber)
+      .map((entry) => entry.savedAs)
+  );
+
+  function isDirectChapterAsset(entry) {
+    return (entry.referencedBy || []).some((source) =>
+      chapterSourceFiles.has(source)
+    );
+  }
 
   const direct = [];
   const supplemental = [];
@@ -43,7 +50,7 @@ try {
       localFile: entry.localFile
     };
 
-    if (isDirectXhtmlAsset(entry)) {
+    if (isDirectChapterAsset(entry)) {
       direct.push(row);
     } else {
       supplemental.push(row);
@@ -58,7 +65,7 @@ try {
   console.log("\nAsset health report\n");
   console.log(`Chapter: ${chapterNumber}`);
   console.log("");
-  console.log("Direct XHTML assets (required for reconstruction)");
+  console.log("Direct captured-XHTML assets (required for reconstruction)");
   console.log(`  Present: ${directPresent.length}`);
   console.log(`  Missing: ${directMissing.length}`);
   console.log(`  Total:   ${direct.length}`);
@@ -81,10 +88,7 @@ try {
     process.exitCode = 2;
   } else {
     console.log(
-      "PASS: every asset referenced directly by captured Chapter XHTML is present."
-    );
-    console.log(
-      "Supplemental CSS dependencies are informational; the publisher stylesheet declares many fonts/icons that a chapter may never actually use."
+      "PASS: every asset referenced directly by the captured Chapter XHTML is present."
     );
   }
 } catch (error) {

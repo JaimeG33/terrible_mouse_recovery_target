@@ -1,58 +1,68 @@
 import fs from "node:fs/promises";
 import { MANIFEST_PATH } from "./config.mjs";
-
-function missingNumbers(values) {
-  if (!values.length) return [];
-  const set = new Set(values);
-  const max = Math.max(...values);
-  const missing = [];
-  for (let i = 1; i <= max; i += 1) {
-    if (!set.has(i)) missing.push(i);
-  }
-  return missing;
-}
+import { analyzeChapterCaptures } from "./capture-order.mjs";
 
 try {
   const raw = await fs.readFile(MANIFEST_PATH, "utf8");
   const manifest = JSON.parse(raw);
 
-  const classified = manifest.captures.filter(
-    (entry) => Number.isInteger(entry.chapterNumber) && Number.isInteger(entry.readerNumber)
-  );
+  const chapterNumbers = [
+    ...new Set(
+      (manifest.captures || [])
+        .map((entry) => entry.chapterNumber)
+        .filter(Number.isInteger)
+    )
+  ].sort((a, b) => a - b);
 
-  const byChapter = new Map();
-  for (const entry of classified) {
-    const list = byChapter.get(entry.chapterNumber) || [];
-    list.push(entry.readerNumber);
-    byChapter.set(entry.chapterNumber, list);
-  }
+  const rows = chapterNumbers.map((chapterNumber) => {
+    const analysis = analyzeChapterCaptures(
+      manifest.captures,
+      chapterNumber
+    );
 
-  const rows = [...byChapter.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([chapter, readers]) => {
-      const unique = [...new Set(readers)].sort((a, b) => a - b);
-      const missing = missingNumbers(unique);
-      return {
-        chapter,
-        capturedFragments: unique.length,
-        highestReaderNumber: unique.at(-1),
-        readers: unique.join(", "),
-        internalGaps: missing.length ? missing.join(", ") : "none"
-      };
-    });
+    return {
+      chapter: chapterNumber,
+      readerFragments: analysis.readerNumbers.length,
+      auxiliaryFragments: analysis.auxiliaryCount,
+      readers: analysis.readerNumbers.join(", ") || "(none)",
+      numericIdGaps:
+        analysis.numericGaps.length
+          ? analysis.numericGaps.join(", ")
+          : "none",
+      knownLinkedMissing:
+        analysis.knownLinkedMissing.length
+          ? analysis.knownLinkedMissing.join(", ")
+          : "none"
+    };
+  });
 
   console.log("\nCapture manifest validation\n");
   console.table(rows);
 
-  const unclassified = manifest.captures.length - classified.length;
-  console.log(`Total captures: ${manifest.captures.length}`);
-  console.log(`Classified chapter fragments: ${classified.length}`);
-  console.log(`Unclassified fragments: ${unclassified}`);
+  const classified = (manifest.captures || []).filter(
+    (entry) => Number.isInteger(entry.chapterNumber)
+  ).length;
+  const unclassified = (manifest.captures || []).length - classified;
+
+  console.log(`Total captures: ${(manifest.captures || []).length}`);
+  console.log(`Assigned to chapters: ${classified}`);
+  console.log(`Unassigned fragments: ${unclassified}`);
+
+  const blocking = rows.filter((row) => row.knownLinkedMissing !== "none");
 
   console.log(
-    "\nNote: 'no internal gaps' only means 1..highest captured reader number is continuous. " +
-    "It does not prove the chapter is complete until we compare against navigation/TOC metadata."
+    "\nNumeric reader IDs are file identifiers and are not assumed to be contiguous."
   );
+  console.log(
+    "`knownLinkedMissing` is more important: it means captured XHTML explicitly references a reader fragment that has not been captured."
+  );
+
+  if (blocking.length) {
+    console.log(
+      "\nWARNING: at least one chapter has a reader fragment explicitly referenced by captured XHTML but not yet captured."
+    );
+    process.exitCode = 2;
+  }
 } catch (error) {
   if (error.code === "ENOENT") {
     console.error("\nNo capture manifest exists yet. Run npm run capture first.\n");
